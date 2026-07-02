@@ -11,8 +11,11 @@ Ac-Bot 是一个社群专属的跨平台机器人系统。当前 MVP 聚焦 Tele
 - `README.md`
 - `AGENTS.md`
 - `docs/specs/0001-community-bot-platform-mvp.md`
+- `docs/deployment-environments.md`
 
 当前项目采用 spec-driven development。规格文档是长期维护的设计依据，不应在功能实现后删除。
+
+如果改动涉及部署、环境变量、secret、真实 Telegram bot、测试群或正式群，请同时阅读部署环境说明。新功能应先在 staging 环境和测试群中体验，再进入 production 环境。
 
 ## 贡献范围
 

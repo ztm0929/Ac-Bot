@@ -4,8 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-02",
   "vars": {
-    "APP_ENV": "local",
-    "TELEGRAM_WEBHOOK_SECRET": "local-telegram-webhook-secret"
+    "APP_ENV": "local"
   },
   "d1_databases": [
     {
@@ -26,5 +25,57 @@
         "queue": "platform-events"
       }
     ]
+  },
+  "env": {
+    "staging": {
+      "vars": {
+        "APP_ENV": "staging"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "ac-bot-staging",
+          "database_id": "00000000-0000-0000-0000-000000000000"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "PLATFORM_EVENTS",
+            "queue": "platform-events-staging"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "platform-events-staging"
+          }
+        ]
+      }
+    },
+    "production": {
+      "vars": {
+        "APP_ENV": "production"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "ac-bot-production",
+          "database_id": "00000000-0000-0000-0000-000000000000"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "PLATFORM_EVENTS",
+            "queue": "platform-events-production"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "platform-events-production"
+          }
+        ]
+      }
+    }
   }
 }
