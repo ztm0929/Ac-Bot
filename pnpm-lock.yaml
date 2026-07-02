@@ -17,9 +17,15 @@ importers:
 
   apps/worker:
     dependencies:
+      '@ac-bot/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@ac-bot/platform-contracts':
         specifier: workspace:*
         version: link:../../packages/platform-contracts
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260701.1)
       hono:
         specifier: ^4.12.27
         version: 4.12.27
