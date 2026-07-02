@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "deploy:production": "wrangler deploy --env production",
+    "deploy:staging": "wrangler deploy --env staging",
     "dev": "wrangler dev",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
