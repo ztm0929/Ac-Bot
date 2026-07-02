@@ -7,6 +7,13 @@
     "APP_ENV": "local",
     "TELEGRAM_WEBHOOK_SECRET": "local-telegram-webhook-secret"
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ac-bot-local",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
   "queues": {
     "producers": [
       {
