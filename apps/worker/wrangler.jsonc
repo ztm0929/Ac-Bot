@@ -13,6 +13,11 @@
         "binding": "PLATFORM_EVENTS",
         "queue": "platform-events"
       }
+    ],
+    "consumers": [
+      {
+        "queue": "platform-events"
+      }
     ]
   }
 }
