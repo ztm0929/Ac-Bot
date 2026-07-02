@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "telegram:set-webhook": "node scripts/telegram-set-webhook.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
