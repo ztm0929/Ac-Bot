@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-02",
   "vars": {
-    "APP_ENV": "local"
+    "APP_ENV": "local",
+    "TELEGRAM_WEBHOOK_SECRET": "local-telegram-webhook-secret"
   }
 }
