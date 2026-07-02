@@ -126,11 +126,23 @@ webhookRoutes.post('/telegram', async (c) => {
 
   const envelope = createTelegramPlatformEventEnvelope(update, new Date().toISOString());
 
+  try {
+    await c.env.PLATFORM_EVENTS.send(envelope);
+  } catch {
+    return c.json(
+      {
+        error: 'queue_unavailable',
+        message: '平台事件写入队列失败',
+      },
+      500,
+    );
+  }
+
   return c.json(
     {
-      error: 'not_implemented',
+      ok: true,
       platform: 'telegram',
-      message: 'Telegram webhook 已解析，队列写入尚未实现',
+      message: 'Telegram webhook 已写入队列',
       envelope: {
         platform: envelope.platform,
         eventType: envelope.eventType,
@@ -138,7 +150,7 @@ webhookRoutes.post('/telegram', async (c) => {
         receivedAt: envelope.receivedAt,
       },
     },
-    501,
+    200,
   );
 });
 

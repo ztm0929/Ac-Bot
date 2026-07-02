@@ -6,5 +6,13 @@
   "vars": {
     "APP_ENV": "local",
     "TELEGRAM_WEBHOOK_SECRET": "local-telegram-webhook-secret"
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "PLATFORM_EVENTS",
+        "queue": "platform-events"
+      }
+    ]
   }
 }
