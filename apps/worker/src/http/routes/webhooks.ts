@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 
+import { createTelegramPlatformEventEnvelope, isTelegramWebhookUpdate } from '../../adapters/telegram/mapper.js';
 import type { WorkerEnv } from '../../app/env.js';
 
 type WebhookPlaceholder = {
@@ -99,8 +100,10 @@ webhookRoutes.post('/telegram', async (c) => {
     );
   }
 
+  let update: unknown;
+
   try {
-    JSON.parse(rawBody);
+    update = JSON.parse(rawBody);
   } catch {
     return c.json(
       {
@@ -111,7 +114,32 @@ webhookRoutes.post('/telegram', async (c) => {
     );
   }
 
-  return c.json(notImplemented({ platform: 'telegram' }), 501);
+  if (!isTelegramWebhookUpdate(update)) {
+    return c.json(
+      {
+        error: 'bad_request',
+        message: 'Telegram webhook update_id 格式无效',
+      },
+      400,
+    );
+  }
+
+  const envelope = createTelegramPlatformEventEnvelope(update, new Date().toISOString());
+
+  return c.json(
+    {
+      error: 'not_implemented',
+      platform: 'telegram',
+      message: 'Telegram webhook 已解析，队列写入尚未实现',
+      envelope: {
+        platform: envelope.platform,
+        eventType: envelope.eventType,
+        rawEventId: envelope.rawEventId,
+        receivedAt: envelope.receivedAt,
+      },
+    },
+    501,
+  );
 });
 
 webhookRoutes.post('/discord', (c) => {

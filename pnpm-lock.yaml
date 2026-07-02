@@ -10,6 +10,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@ac-bot/platform-contracts':
+        specifier: workspace:*
+        version: link:../../packages/platform-contracts
       hono:
         specifier: ^4.12.27
         version: 4.12.27
