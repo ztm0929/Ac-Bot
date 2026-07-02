@@ -100,6 +100,8 @@ Ac-Bot 是一个社群专属的跨平台机器人系统。当前 MVP 只实现 T
 
 一次 Pull Request 应只解决一个清晰的问题或交付一个内聚的小目标。不要把无关的重构、格式化、依赖升级、文档调整和功能实现混在同一个 PR 或同一个 commit 中。commit 应符合开源社区常见实践：主题明确、范围适中、可单独 review；如果改动自然分成多个逻辑步骤，应拆成多个相关 commit，而不是堆成一个大提交。
 
+合并 PR 时优先使用 Squash and merge，让 `main` 分支保持每个 PR 一个清晰提交。squash 后的提交信息应保留规范的类型前缀、中文说明，以及需要的 `Co-authored-by:` 或 `Assisted-by:` trailer。
+
 分支命名：
 
 - `feat/<short-name>`：新增功能
