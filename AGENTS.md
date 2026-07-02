@@ -45,6 +45,10 @@ Ac-Bot 是一个社群专属的跨平台机器人系统。当前 MVP 只实现 T
 - Telegram 专属类型放在 `packages/platform-contracts/src/telegram/`。
 - 不要在 core modules 中直接使用 `ChatJoinRequest`、`approveChatJoinRequest`、`declineChatJoinRequest`、`telegram_user_id`、`chat_id` 等 Telegram 专属概念。
 
+## 类型安全规则
+
+禁止显式使用 `any`。外部输入边界可以临时使用 `unknown`，例如 HTTP body、第三方 webhook、队列消息或 JSON 字段，但必须尽快通过 schema、type guard 或明确解析函数收窄为具体类型；不要让 `unknown` 流入 core/service 层。
+
 ## 变更边界
 
 当前优先级：
