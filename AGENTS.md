@@ -19,6 +19,12 @@ Ac-Bot 是一个社群专属的跨平台机器人系统。当前 MVP 只实现 T
 
 该 spec 是当前项目的主要设计来源。除非用户明确要求调整架构，否则实现应遵守其中的技术选型、模块边界和 MVP 范围。
 
+涉及部署、环境变量、secret、真实 Telegram bot、测试群或正式群时，还必须阅读：
+
+- `docs/deployment-environments.md`
+
+默认发布流程是先部署 staging，在测试 bot 与测试群完成实际体验后，再部署 production。
+
 ## 技术栈
 
 - TypeScript
