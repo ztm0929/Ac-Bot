@@ -24,6 +24,12 @@ importers:
         specifier: ^4.106.0
         version: 4.106.0(@cloudflare/workers-types@4.20260701.1)
 
+  packages/platform-contracts:
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
 packages:
 
   '@cloudflare/kv-asset-handler@0.5.0':

@@ -1,0 +1,17 @@
+{
+  "name": "@ac-bot/platform-contracts",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core/index.ts",
+    "./telegram": "./src/telegram/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}
