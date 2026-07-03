@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createJoinApplicationCreatedEventFromTelegramUpdate,
   isTelegramChatJoinRequestUpdate,
+  isTelegramMessageUpdate,
   isTelegramWebhookUpdate,
 } from './mapper.js';
 
@@ -25,6 +26,21 @@ describe('Telegram mapper', () => {
 
     expect(isTelegramWebhookUpdate(update)).toBe(true);
     expect(isTelegramChatJoinRequestUpdate(update)).toBe(true);
+  });
+
+  it('识别 message update', () => {
+    const update = {
+      update_id: 123,
+      message: {
+        message_id: 1,
+        chat: { id: -100123 },
+        from: { id: 456 },
+        text: '/pending',
+      },
+    };
+
+    expect(isTelegramWebhookUpdate(update)).toBe(true);
+    expect(isTelegramMessageUpdate(update)).toBe(true);
   });
 
   it('将 chat_join_request 映射为 join_application.created 核心事件', () => {

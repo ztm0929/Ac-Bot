@@ -1,5 +1,6 @@
 import { joinApplications } from '@ac-bot/db/schema';
 import type { CoreEventEnvelope, JoinApplicationCreatedPayload } from '@ac-bot/platform-contracts/core';
+import { desc, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 export type PersistJoinApplicationResult =
@@ -43,4 +44,20 @@ export const persistJoinApplicationCreatedEvent = async (
 
     throw error;
   }
+};
+
+export type JoinApplicationRecord = typeof joinApplications.$inferSelect;
+
+export const listAppliedJoinApplications = async (
+  dbBinding: D1Database,
+  limit = 5,
+): Promise<JoinApplicationRecord[]> => {
+  const db = drizzle(dbBinding);
+
+  return db
+    .select()
+    .from(joinApplications)
+    .where(eq(joinApplications.status, 'applied'))
+    .orderBy(desc(joinApplications.createdAt))
+    .limit(limit);
 };

@@ -1,7 +1,9 @@
 import { isPlatformEventEnvelope } from '@ac-bot/platform-contracts/core';
 
+import { handleTelegramAdminCommand } from '../adapters/telegram/admin.js';
 import {
   createJoinApplicationCreatedEventFromTelegramUpdate,
+  isTelegramMessageUpdate,
   isTelegramWebhookUpdate,
 } from '../adapters/telegram/mapper.js';
 import type { WorkerBindings } from '../app/env.js';
@@ -30,6 +32,15 @@ export const consumePlatformEvents: ExportedHandlerQueueHandler<WorkerBindings, 
 
       if (coreEvent) {
         await persistJoinApplicationCreatedEvent(env.DB, coreEvent);
+      }
+
+      if (isTelegramMessageUpdate(message.body.payload) && env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_ADMIN_USER_IDS) {
+        await handleTelegramAdminCommand({
+          db: env.DB,
+          botToken: env.TELEGRAM_BOT_TOKEN,
+          adminUserIds: env.TELEGRAM_ADMIN_USER_IDS,
+          message: message.body.payload.message,
+        });
       }
     }
 

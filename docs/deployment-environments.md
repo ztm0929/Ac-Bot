@@ -56,11 +56,15 @@ pnpm --filter @ac-bot/worker db:migrate:production
 ```bash
 wrangler secret put TELEGRAM_BOT_TOKEN --env staging
 wrangler secret put TELEGRAM_WEBHOOK_SECRET --env staging
+wrangler secret put TELEGRAM_ADMIN_USER_IDS --env staging
 wrangler secret put TELEGRAM_BOT_TOKEN --env production
 wrangler secret put TELEGRAM_WEBHOOK_SECRET --env production
+wrangler secret put TELEGRAM_ADMIN_USER_IDS --env production
 ```
 
 staging 与 production 必须使用不同的 Telegram bot、不同的群组和不同的 webhook secret。
+
+`TELEGRAM_ADMIN_USER_IDS` 是早期 Telegram 场景实测用的管理员白名单，多个 Telegram user id 用英文逗号分隔。正式管理员权限仍应迁移到数据库中的管理员配置。
 
 ## Telegram webhook
 
@@ -96,6 +100,17 @@ TELEGRAM_SET_WEBHOOK_DRY_RUN=true
 ```
 
 Webhook URL 必须使用 `https://`，并指向 `/webhooks/telegram`。
+
+## Telegram 测试准备
+
+staging 实测需要在 Telegram 里准备：
+
+1. 测试 bot。
+2. 测试群。
+3. 把测试 bot 加为测试群管理员，并授予邀请用户权限。
+4. 创建一个需要管理员批准的邀请链接。普通邀请链接会让用户直接入群，不会产生 `chat_join_request`。
+5. 准备至少一个管理员 Telegram user id，写入 staging 的 `TELEGRAM_ADMIN_USER_IDS`。
+6. 准备另一个 Telegram 账号作为申请入群的普通用户。
 
 ## 发布流程
 

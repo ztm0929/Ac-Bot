@@ -17,8 +17,20 @@ export type TelegramChatJoinRequest = {
   };
 };
 
+export type TelegramMessage = {
+  message_id: number;
+  chat: {
+    id: number | string;
+  };
+  from?: {
+    id: number | string;
+  };
+  text?: string;
+};
+
 export type TelegramWebhookUpdate = {
   update_id: TelegramUpdateId;
   chat_join_request?: TelegramChatJoinRequest;
+  message?: TelegramMessage;
   [key: string]: unknown;
 };

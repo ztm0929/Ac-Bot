@@ -15,6 +15,11 @@ type TelegramRequestBody = {
   user_id: number;
 };
 
+type TelegramSendMessageBody = {
+  chat_id: number | string;
+  text: string;
+};
+
 export class TelegramApiError extends Error {
   constructor(message: string) {
     super(message);
@@ -81,7 +86,11 @@ export class TelegramPlatformApi {
     await this.request('declineChatJoinRequest', createRequestBody(input));
   }
 
-  private async request(method: string, body: TelegramRequestBody): Promise<void> {
+  async sendMessage(input: TelegramSendMessageBody): Promise<void> {
+    await this.request('sendMessage', input);
+  }
+
+  private async request(method: string, body: TelegramRequestBody | TelegramSendMessageBody): Promise<void> {
     const abortController = new AbortController();
     // 外部平台请求不能无限挂起；超时后交给后续调用方按失败路径处理和重试。
     const timeout = setTimeout(() => abortController.abort(), telegramApiTimeoutMs);

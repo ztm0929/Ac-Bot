@@ -3,7 +3,11 @@ import type {
   JoinApplicationCreatedPayload,
   PlatformEventEnvelope,
 } from '@ac-bot/platform-contracts/core';
-import type { TelegramChatJoinRequest, TelegramWebhookUpdate } from '@ac-bot/platform-contracts/telegram';
+import type {
+  TelegramChatJoinRequest,
+  TelegramMessage,
+  TelegramWebhookUpdate,
+} from '@ac-bot/platform-contracts/telegram';
 
 const telegramUpdateEventType = 'telegram.update.received';
 const joinApplicationCreatedEventType = 'join_application.created';
@@ -38,6 +42,28 @@ export const isTelegramChatJoinRequestUpdate = (
   update: TelegramWebhookUpdate,
 ): update is TelegramWebhookUpdate & { chat_join_request: TelegramChatJoinRequest } => {
   return isTelegramChatJoinRequest(update.chat_join_request);
+};
+
+export const isTelegramMessage = (input: unknown): input is TelegramMessage => {
+  if (!isRecord(input) || !isRecord(input.chat) || !Number.isInteger(input.message_id)) {
+    return false;
+  }
+
+  if (!hasTelegramId(input.chat.id)) {
+    return false;
+  }
+
+  if (input.from !== undefined && (!isRecord(input.from) || !hasTelegramId(input.from.id))) {
+    return false;
+  }
+
+  return input.text === undefined || typeof input.text === 'string';
+};
+
+export const isTelegramMessageUpdate = (
+  update: TelegramWebhookUpdate,
+): update is TelegramWebhookUpdate & { message: TelegramMessage } => {
+  return isTelegramMessage(update.message);
 };
 
 export const createTelegramPlatformEventEnvelope = (

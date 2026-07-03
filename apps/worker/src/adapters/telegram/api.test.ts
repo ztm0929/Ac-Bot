@@ -59,6 +59,29 @@ describe('TelegramPlatformApi', () => {
     });
   });
 
+  it('调用 sendMessage 发送 Telegram 消息', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse.clone());
+    const api = new TelegramPlatformApi('test-token', fetchMock);
+
+    await api.sendMessage({
+      chat_id: -100123,
+      text: '当前没有待审核入群申请。',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('https://api.telegram.org/bottest-token/sendMessage', {
+      method: 'POST',
+      signal: expect.any(AbortSignal) as AbortSignal,
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: -100123,
+        text: '当前没有待审核入群申请。',
+      }),
+    });
+  });
+
+
   it('Telegram API 返回失败时抛出错误', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ ok: false, description: 'Bad Request' }), {
