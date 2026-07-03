@@ -27,6 +27,11 @@
       }
     ]
   },
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
+  },
   "env": {
     "staging": {
       "vars": {
