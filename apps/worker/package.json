@@ -5,6 +5,8 @@
   "scripts": {
     "deploy:production": "wrangler deploy --env production",
     "deploy:staging": "wrangler deploy --env staging",
+    "db:migrate:production": "wrangler d1 migrations apply ac-bot-production --remote --env production",
+    "db:migrate:staging": "wrangler d1 migrations apply ac-bot-staging --remote --env staging",
     "dev": "wrangler dev",
     "telegram:set-webhook:production": "node scripts/telegram-set-webhook.mjs production",
     "telegram:set-webhook:staging": "node scripts/telegram-set-webhook.mjs staging",

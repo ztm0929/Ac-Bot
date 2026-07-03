@@ -27,6 +27,24 @@ pnpm --filter @ac-bot/worker deploy:staging
 pnpm --filter @ac-bot/worker deploy:production
 ```
 
+## 数据库迁移
+
+部署前应先对对应环境执行 D1 migration。staging 和 production 使用不同数据库，不能混用命令。
+
+staging：
+
+```bash
+pnpm --filter @ac-bot/worker db:migrate:staging
+```
+
+production：
+
+```bash
+pnpm --filter @ac-bot/worker db:migrate:production
+```
+
+迁移文件统一放在 `packages/db/migrations/`。执行 production 迁移前，应先确认同一批迁移已经在 staging 跑过，并完成测试群体验。
+
 ## Secret 规则
 
 不要把 bot token、webhook secret、Cloudflare secret 写进 `wrangler.jsonc`、文档或提交记录。
@@ -82,10 +100,12 @@ Webhook URL 必须使用 `https://`，并指向 `/webhooks/telegram`。
 ## 发布流程
 
 1. 合并代码到 `main`。
-2. 部署 staging。
-3. 在测试 bot 与测试群中完成实际流程测试。
-4. 确认数据、日志、管理员操作和用户体验没有明显问题。
-5. 部署 production。
-6. 在正式群中小范围观察，再扩大使用范围。
+2. 对 staging 执行数据库迁移。
+3. 部署 staging。
+4. 在测试 bot 与测试群中完成实际流程测试。
+5. 确认数据、日志、管理员操作和用户体验没有明显问题。
+6. 对 production 执行数据库迁移。
+7. 部署 production。
+8. 在正式群中小范围观察，再扩大使用范围。
 
 未来新增功能也按这个流程进入正式群，避免未经体验的功能直接影响同学们。
