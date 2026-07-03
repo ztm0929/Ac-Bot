@@ -9,6 +9,22 @@ const okResponse = new Response(JSON.stringify({ ok: true }), {
   },
 });
 
+const getRequestBody = (fetchMock: ReturnType<typeof vi.fn<typeof fetch>>, callIndex = 0) => {
+  const call = fetchMock.mock.calls[callIndex];
+
+  if (!call) {
+    throw new Error('fetch 未被调用');
+  }
+
+  const requestInit = call[1];
+
+  if (!requestInit || typeof requestInit.body !== 'string') {
+    throw new Error('fetch 请求体不是 JSON 字符串');
+  }
+
+  return JSON.parse(requestInit.body) as Record<string, unknown>;
+};
+
 describe('TelegramPlatformApi', () => {
   it('调用 approveChatJoinRequest 批准入群申请', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse.clone());
@@ -78,6 +94,187 @@ describe('TelegramPlatformApi', () => {
         applicationId: 'telegram:123',
       }),
     ).rejects.toThrow(new TelegramApiError('Bad Request'));
+  });
+
+  it('调用 sendMessage 发送私聊消息', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse.clone());
+    const api = new TelegramPlatformApi('test-token', fetchMock);
+
+    await api.sendDirectMessage({
+      platform: 'telegram',
+      platformAccountId: '456',
+      text: '请完成验证',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('https://api.telegram.org/bottest-token/sendMessage', {
+      method: 'POST',
+      signal: expect.any(AbortSignal) as AbortSignal,
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: 456,
+        text: '请完成验证',
+      }),
+    });
+  });
+
+  it('调用 restrictChatMember 完全限制未验证成员发言', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse.clone());
+    const api = new TelegramPlatformApi('test-token', fetchMock);
+
+    await api.restrictMember({
+      platform: 'telegram',
+      communityId: '-100123',
+      platformAccountId: '456',
+      mode: 'verification_locked',
+    });
+
+    const body = getRequestBody(fetchMock);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.telegram.org/bottest-token/restrictChatMember',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(body).toMatchObject({
+      chat_id: -100123,
+      user_id: 456,
+      use_independent_chat_permissions: true,
+      permissions: {
+        can_send_messages: false,
+        can_send_photos: false,
+        can_send_videos: false,
+        can_send_other_messages: false,
+        can_add_web_page_previews: false,
+        can_react_to_messages: false,
+      },
+    });
+  });
+
+  it('调用 restrictChatMember 恢复观察期文本权限', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse.clone());
+    const api = new TelegramPlatformApi('test-token', fetchMock);
+
+    await api.restoreMember({
+      platform: 'telegram',
+      communityId: '-100123',
+      platformAccountId: '456',
+      mode: 'probation_text_only',
+    });
+
+    const body = getRequestBody(fetchMock);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.telegram.org/bottest-token/restrictChatMember',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(body).toMatchObject({
+      chat_id: -100123,
+      user_id: 456,
+      use_independent_chat_permissions: true,
+      permissions: {
+        can_send_messages: true,
+        can_send_photos: false,
+        can_send_videos: false,
+        can_send_other_messages: false,
+        can_add_web_page_previews: false,
+        can_react_to_messages: false,
+      },
+    });
+  });
+
+  it('调用 banChatMember 后 unbanChatMember 移出成员但允许重新加入', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(okResponse.clone())
+      .mockResolvedValueOnce(okResponse.clone());
+    const api = new TelegramPlatformApi('test-token', fetchMock);
+
+    await api.removeMember({
+      platform: 'telegram',
+      communityId: '-100123',
+      platformAccountId: '456',
+      reason: '验证超时',
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://api.telegram.org/bottest-token/banChatMember', {
+      method: 'POST',
+      signal: expect.any(AbortSignal) as AbortSignal,
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: -100123,
+        user_id: 456,
+        revoke_messages: false,
+      }),
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://api.telegram.org/bottest-token/unbanChatMember', {
+      method: 'POST',
+      signal: expect.any(AbortSignal) as AbortSignal,
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: -100123,
+        user_id: 456,
+        only_if_banned: true,
+      }),
+    });
+  });
+
+  it('调用 banChatMember 永久拉黑成员', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse.clone());
+    const api = new TelegramPlatformApi('test-token', fetchMock);
+
+    await api.banMember({
+      platform: 'telegram',
+      communityId: '-100123',
+      platformAccountId: '456',
+      reason: '高风险账号',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('https://api.telegram.org/bottest-token/banChatMember', {
+      method: 'POST',
+      signal: expect.any(AbortSignal) as AbortSignal,
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: -100123,
+        user_id: 456,
+        revoke_messages: false,
+      }),
+    });
+  });
+
+  it('调用 unbanChatMember 解除成员拉黑', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse.clone());
+    const api = new TelegramPlatformApi('test-token', fetchMock);
+
+    await api.unbanMember({
+      platform: 'telegram',
+      communityId: '-100123',
+      platformAccountId: '456',
+      reason: '管理员解除误判',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('https://api.telegram.org/bottest-token/unbanChatMember', {
+      method: 'POST',
+      signal: expect.any(AbortSignal) as AbortSignal,
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: -100123,
+        user_id: 456,
+        only_if_banned: true,
+      }),
+    });
   });
 
   it('非 telegram 平台动作不会请求 Telegram API', async () => {
