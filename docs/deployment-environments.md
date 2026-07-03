@@ -44,6 +44,41 @@ wrangler secret put TELEGRAM_WEBHOOK_SECRET --env production
 
 staging 与 production 必须使用不同的 Telegram bot、不同的群组和不同的 webhook secret。
 
+## Telegram webhook
+
+部署 Worker 并配置对应环境的 secret 后，可以为测试 bot 或正式 bot 设置 webhook。
+
+staging：
+
+```bash
+pnpm --filter @ac-bot/worker telegram:set-webhook:staging
+```
+
+production：
+
+```bash
+pnpm --filter @ac-bot/worker telegram:set-webhook:production
+```
+
+脚本需要从本机环境变量读取对应环境的 bot token、webhook URL 和 webhook secret：
+
+```bash
+TELEGRAM_STAGING_BOT_TOKEN
+TELEGRAM_STAGING_WEBHOOK_URL
+TELEGRAM_STAGING_WEBHOOK_SECRET
+TELEGRAM_PRODUCTION_BOT_TOKEN
+TELEGRAM_PRODUCTION_WEBHOOK_URL
+TELEGRAM_PRODUCTION_WEBHOOK_SECRET
+```
+
+如需先验证参数而不请求 Telegram API，可以设置：
+
+```bash
+TELEGRAM_SET_WEBHOOK_DRY_RUN=true
+```
+
+Webhook URL 必须使用 `https://`，并指向 `/webhooks/telegram`。
+
 ## 发布流程
 
 1. 合并代码到 `main`。

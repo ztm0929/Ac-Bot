@@ -6,6 +6,8 @@
     "deploy:production": "wrangler deploy --env production",
     "deploy:staging": "wrangler deploy --env staging",
     "dev": "wrangler dev",
+    "telegram:set-webhook:production": "node scripts/telegram-set-webhook.mjs production",
+    "telegram:set-webhook:staging": "node scripts/telegram-set-webhook.mjs staging",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
