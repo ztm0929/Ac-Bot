@@ -1,1 +1,3 @@
+INTERNAL_ADMIN_SECRET="local-internal-admin-secret"
+TELEGRAM_BOT_TOKEN="local-telegram-bot-token"
 TELEGRAM_WEBHOOK_SECRET="local-telegram-webhook-secret"

@@ -56,11 +56,15 @@ pnpm --filter @ac-bot/worker db:migrate:production
 ```bash
 wrangler secret put TELEGRAM_BOT_TOKEN --env staging
 wrangler secret put TELEGRAM_WEBHOOK_SECRET --env staging
+wrangler secret put INTERNAL_ADMIN_SECRET --env staging
 wrangler secret put TELEGRAM_BOT_TOKEN --env production
 wrangler secret put TELEGRAM_WEBHOOK_SECRET --env production
+wrangler secret put INTERNAL_ADMIN_SECRET --env production
 ```
 
 staging 与 production 必须使用不同的 Telegram bot、不同的群组和不同的 webhook secret。
+
+`INTERNAL_ADMIN_SECRET` 用于早期内部审批测试入口。它不是最终管理员权限模型；正式管理员权限仍应按数据库中的 `platform + platform_account_id` 校验。
 
 ## Telegram webhook
 
@@ -96,6 +100,30 @@ TELEGRAM_SET_WEBHOOK_DRY_RUN=true
 ```
 
 Webhook URL 必须使用 `https://`，并指向 `/webhooks/telegram`。
+
+## 早期内部审批测试
+
+在正式管理员审核界面完成前，可以用内部审批入口在 staging 中验证 Telegram 批准/拒绝链路。
+
+批准：
+
+```bash
+curl -X POST "https://<staging-worker-domain>/internal/join-applications/approve" \
+  -H "Content-Type: application/json" \
+  -H "X-Ac-Bot-Internal-Secret: <INTERNAL_ADMIN_SECRET>" \
+  -d '{"applicationId":"telegram:<update_id>"}'
+```
+
+拒绝：
+
+```bash
+curl -X POST "https://<staging-worker-domain>/internal/join-applications/reject" \
+  -H "Content-Type: application/json" \
+  -H "X-Ac-Bot-Internal-Secret: <INTERNAL_ADMIN_SECRET>" \
+  -d '{"applicationId":"telegram:<update_id>"}'
+```
+
+该入口只用于 staging 早期实测，不替代正式管理员权限、审计日志和二次确认流程。
 
 ## 发布流程
 
