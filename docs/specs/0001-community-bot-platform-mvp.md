@@ -4,7 +4,9 @@
 
 ## 1. 项目定位
 
-构建一个社群专属跨平台 Bot 系统，作为社区统一治理入口。当前 MVP 只实现 Telegram 入群验证与审批；后续在同一个代码仓库内增量加入 QQ、Discord、Matrix 等平台 adapter，并继续扩展问卷调研、互动、资料收集、活动报名、通知、管理员审核与社区信息展示。
+构建一个社群专属跨平台 Bot 系统，作为社区统一治理入口。当前 MVP 只实现 Telegram 公开群入群后验证与治理；后续在同一个代码仓库内增量加入 QQ、Discord、Matrix 等平台 adapter，并继续扩展问卷调研、互动、资料收集、活动报名、通知、管理员审核与社区信息展示。
+
+Telegram 正式群组必须保持公开群性质，不采用私有群邀请链接作为主要入口。因此 MVP 主路径不是 `chat_join_request` 入群前审批，而是用户通过公开群入口加入后，由 bot 执行验证、限制、解除限制、移出群组和审计记录。
 
 产品形态固定为：
 
@@ -275,30 +277,71 @@ Worker Application Core 是业务大脑。它负责：
 - `setWebhook`: <https://core.telegram.org/bots/api#setwebhook>
 - `Update`: <https://core.telegram.org/bots/api#update>
 
-### 5.2 Telegram 入群申请与审批
+### 5.2 Telegram 公开群入群后验证
 
 MVP 核心平台能力：
+
+```text
+message.new_chat_members
+chat_member update
+restrictChatMember
+banChatMember
+unbanChatMember
+sendMessage
+```
+
+Telegram 正式群必须保持公开群。公开群的公开链接允许用户直接加入并发言时，Telegram 不提供稳定的 `chat_join_request` 入群前审批主路径。MVP 因此采用入群后验证：
+
+```text
+用户加入公开群
+-> Telegram 发送 message.new_chat_members 或 chat_member update
+-> bot 临时限制用户发言
+-> bot 私聊或群内提示完成验证
+-> 验证通过后解除限制
+-> 验证失败或超时后移出群组或进入人工审核
+```
+
+Telegram bot 必须是目标群管理员，并至少拥有限制成员、移出成员和发送消息所需权限。为减少骚扰窗口，bot 应在发现新成员后尽快执行限制动作。
+
+TelegramPlatformAdapter 必须将新成员加入事件转换为核心事件：
+
+```text
+member.joined
+verification.session_created
+```
+
+TelegramPlatformAdapter 必须将核心动作转换为 Telegram API 调用：
+
+```text
+restrictMember -> restrictChatMember
+removeMember -> banChatMember
+restoreMember -> restrictChatMember 或 unbanChatMember
+sendVerificationMessage -> sendMessage
+```
+
+`chat_join_request`、`ChatJoinRequest`、`approveChatJoinRequest`、`declineChatJoinRequest` 和 Join Request Queries 仍作为 Telegram adapter 的可选能力保留，用于私有群、特殊邀请链接或未来扩展；它们不再是公开群 MVP 主路径。
+
+文档：
+
+- `Message.new_chat_members`: <https://core.telegram.org/bots/api#message>
+- `ChatMemberUpdated`: <https://core.telegram.org/bots/api#chatmemberupdated>
+- `restrictChatMember`: <https://core.telegram.org/bots/api#restrictchatmember>
+- `banChatMember`: <https://core.telegram.org/bots/api#banchatmember>
+- `unbanChatMember`: <https://core.telegram.org/bots/api#unbanchatmember>
+- `sendMessage`: <https://core.telegram.org/bots/api#sendmessage>
+
+### 5.3 Telegram 入群申请可选能力
+
+私有群或带 `creates_join_request` 的特殊邀请链接可以产生 `chat_join_request`。该能力可用于 staging 实验、未来私有群场景或补充入口，但不是正式公开群 MVP 的主流程。
+
+涉及能力：
 
 ```text
 chat_join_request update
 ChatJoinRequest
 approveChatJoinRequest
 declineChatJoinRequest
-```
-
-Telegram bot 必须是目标群管理员，并拥有 `can_invite_users` 权限，才能接收 `chat_join_request` 并审批用户。
-
-TelegramPlatformAdapter 必须将 `ChatJoinRequest` 转换为核心事件：
-
-```text
-join_application.created
-```
-
-TelegramPlatformAdapter 必须将核心动作转换为 Telegram API 调用：
-
-```text
-approveJoinApplication -> approveChatJoinRequest
-rejectJoinApplication -> declineChatJoinRequest
+ChatInviteLink.creates_join_request
 ```
 
 文档：
@@ -309,11 +352,11 @@ rejectJoinApplication -> declineChatJoinRequest
 - `declineChatJoinRequest`: <https://core.telegram.org/bots/api#declinechatjoinrequest>
 - `ChatInviteLink.creates_join_request`: <https://core.telegram.org/bots/api#chatinvitelink>
 
-### 5.3 Telegram Bot API 10.1 Join Request Queries
+### 5.4 Telegram Bot API 10.1 Join Request Queries
 
 Telegram Bot API 10.1 新增 Join Request Queries，用于在决定入群申请结果前展示 Mini App 或直接回答入群申请查询。
 
-本项目第一阶段必须在 TelegramPlatformAdapter 的数据模型和服务接口中预留该能力；MVP 可以先走私聊验证，但不能把验证方式写死。
+该能力属于私有群或特殊邀请链接的可选扩展。MVP 主路径采用公开群入群后验证，但数据模型和服务接口不应把验证方式写死，以便未来复用 Mini App 或 Join Request Queries。
 
 涉及能力：
 
@@ -345,7 +388,7 @@ answerChatJoinRequestQuery
 - `answerChatJoinRequestQuery`: <https://core.telegram.org/bots/api#answerchatjoinrequestquery>
 - `ChatFullInfo.guard_bot`: <https://core.telegram.org/bots/api#chatfullinfo>
 
-### 5.4 Telegram Mini App
+### 5.5 Telegram Mini App
 
 Mini App 用于后续增强 Telegram 验证、问卷、资料收集和活动报名。MVP 中只建立基础壳与 init data 校验。
 
@@ -510,25 +553,26 @@ member
 
 每一次状态变化必须写入 `audit_logs`。
 
-### 7.2 MVP: Telegram 入群申请流程
+### 7.2 MVP: Telegram 公开群入群后验证流程
 
 ```text
-1. Telegram 发送 chat_join_request
+1. 用户通过公开群入口加入 Telegram 群
 2. Worker 校验 secret 并写入 Cloudflare Queue
 3. Worker queue consumer 从 Cloudflare Queue 消费 PlatformEventEnvelope
 4. Worker 以 platform + raw_event_id 幂等写入 D1
-5. TelegramPlatformAdapter 将 ChatJoinRequest 映射为 JoinApplication
-6. onboarding 模块创建 join_application
-7. profiles 模块 upsert user、platform_account 与 community_member
-8. moderation 模块计算 risk_score
-9. low risk：自动 approve
-10. medium risk：进入 verification_pending
-11. high risk：进入 manual_review
-12. 验证通过后触发 approveJoinApplication
-13. TelegramPlatformAdapter 调用 approveChatJoinRequest
-14. 验证失败或超时后触发 rejectJoinApplication
-15. TelegramPlatformAdapter 调用 declineChatJoinRequest
-16. 所有决策写入 admin_actions 与 audit_logs
+5. TelegramPlatformAdapter 将 message.new_chat_members 或 chat_member update 映射为 member.joined
+6. profiles 模块 upsert user、platform_account 与 community_member
+7. onboarding 模块创建 verification_session
+8. TelegramPlatformAdapter 调用 restrictChatMember 临时限制新成员发言
+9. moderation 模块计算 risk_score
+10. low risk：自动通过验证并解除限制
+11. medium risk：进入 verification_pending 并发送验证提示
+12. high risk：进入 manual_review
+13. 验证通过后触发 restoreMember
+14. TelegramPlatformAdapter 调用 restrictChatMember 或 unbanChatMember 恢复成员权限
+15. 验证失败或超时后触发 removeMember 或进入人工审核
+16. TelegramPlatformAdapter 调用 banChatMember 移出成员
+17. 所有决策写入 admin_actions 与 audit_logs
 ```
 
 ### 7.3 验证方式抽象
@@ -853,8 +897,9 @@ setWebhook 脚本
 D1 schema
 Drizzle migration
 platform_events 幂等入库
-Telegram chat_join_request 接收
-手动批准/拒绝
+Telegram 新成员加入事件接收
+新成员临时限制发言
+手动解除限制/移出
 审计日志
 ```
 
@@ -864,7 +909,7 @@ P1：
 风险评分
 私聊验证
 验证超时任务
-自动 approve / decline
+自动解除限制 / 移出
 管理员审核卡片
 管理员权限配置
 ```
@@ -883,6 +928,7 @@ Join Request Queries 接口预留
 P3：
 
 ```text
+chat_join_request 可选入口
 sendChatJoinRequestWebApp
 answerChatJoinRequestQuery
 资料收集模块
@@ -923,14 +969,14 @@ MVP 完成时必须满足：
 ```text
 1. Telegram webhook 能稳定接收 update
 2. 非法 webhook secret 请求被拒绝
-3. Telegram chat_join_request 被映射为 JoinApplication，且不会重复处理
-4. 低风险用户可自动批准
+3. Telegram 新成员加入事件被映射为成员验证流程，且不会重复处理
+4. 新成员加入后会被临时限制发言
 5. 中风险用户会收到私聊验证
-6. 验证通过后自动批准
-7. 验证失败或超时后自动拒绝或进入人工审核
-8. 管理员可在审核群点击批准/拒绝
-9. 每次审批都有 audit log
-10. Worker 重新部署或短暂失败不会丢失待处理申请
+6. 验证通过后自动解除限制
+7. 验证失败或超时后自动移出群组或进入人工审核
+8. 管理员可在审核群点击解除限制/移出
+9. 每次验证决策都有 audit log
+10. Worker 重新部署或短暂失败不会丢失待验证成员状态
 11. TelegramPlatformAdapter 调用 Telegram API 失败会重试
 12. 配置项不写死在代码中
 ```
@@ -946,6 +992,10 @@ Telegram：
 - `ChatJoinRequest`: <https://core.telegram.org/bots/api#chatjoinrequest>
 - `approveChatJoinRequest`: <https://core.telegram.org/bots/api#approvechatjoinrequest>
 - `declineChatJoinRequest`: <https://core.telegram.org/bots/api#declinechatjoinrequest>
+- `ChatMemberUpdated`: <https://core.telegram.org/bots/api#chatmemberupdated>
+- `restrictChatMember`: <https://core.telegram.org/bots/api#restrictchatmember>
+- `banChatMember`: <https://core.telegram.org/bots/api#banchatmember>
+- `unbanChatMember`: <https://core.telegram.org/bots/api#unbanchatmember>
 - `sendChatJoinRequestWebApp`: <https://core.telegram.org/bots/api#sendchatjoinrequestwebapp>
 - `answerChatJoinRequestQuery`: <https://core.telegram.org/bots/api#answerchatjoinrequestquery>
 - Mini Apps: <https://core.telegram.org/bots/webapps>
