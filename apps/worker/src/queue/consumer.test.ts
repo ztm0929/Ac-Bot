@@ -9,6 +9,8 @@ const createEnv = (): WorkerBindings =>
     DB: {},
     PLATFORM_EVENTS: {},
     TELEGRAM_BOT_TOKEN: 'test-token',
+    VERIFICATION_PROMPT_TEXT: '请完成验证',
+    VERIFICATION_PROMPT_GROUP_FALLBACK_TEXT: '请点击机器人完成验证',
   }) as WorkerBindings;
 
 const createNewMemberEnvelope = (): PlatformEventEnvelope => ({
@@ -115,5 +117,66 @@ describe('processPlatformEventEnvelope', () => {
     });
 
     expect(handleVerificationAnswer).not.toHaveBeenCalled();
+  });
+
+  it('新成员处理应先限制发言再发送验证引导', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+        },
+      })),
+    );
+
+    globalThis.fetch = fetchMock;
+
+    try {
+      await processPlatformEventEnvelope(createEnv(), createNewMemberEnvelope(), {
+        persistPlatformEvent: vi.fn().mockResolvedValue({ status: 'created' }),
+        persistJoinApplicationCreatedEvent: vi.fn().mockResolvedValue({ status: 'created' }),
+        async handleMemberJoined(coreEvent) {
+          const { TelegramPlatformApi } = await import('../adapters/telegram/api.js');
+          const telegramApi = new TelegramPlatformApi('test-token');
+
+          await telegramApi.restrictMember({
+            platform: coreEvent.payload.platform,
+            communityId: coreEvent.payload.communityId,
+            platformAccountId: coreEvent.payload.platformAccountId,
+            mode: 'verification_locked',
+          });
+          await telegramApi.sendVerificationPrompt({
+            platform: coreEvent.payload.platform,
+            communityId: coreEvent.payload.communityId,
+            platformAccountId: coreEvent.payload.platformAccountId,
+            directMessageText: '请完成验证',
+            groupFallbackText: '请点击机器人完成验证',
+          });
+        },
+        handleVerificationAnswer: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://api.telegram.org/bottest-token/restrictChatMember',
+        expect.objectContaining({
+          method: 'POST',
+        }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://api.telegram.org/bottest-token/sendMessage',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            chat_id: 456,
+            text: '请完成验证',
+          }),
+        }),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

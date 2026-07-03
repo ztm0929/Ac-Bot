@@ -7,6 +7,8 @@ import type {
   RestoreMemberInput,
   RestrictMemberInput,
   UnbanMemberInput,
+  VerificationPromptDelivery,
+  VerificationPromptInput,
 } from '@ac-bot/platform-contracts/core';
 
 const telegramApiTimeoutMs = 10_000;
@@ -116,6 +118,32 @@ const createDirectMessageRequestBody = (
   };
 };
 
+const createVerificationPromptDirectMessageRequestBody = (
+  input: VerificationPromptInput,
+): Pick<TelegramRequestBody, 'chat_id' | 'text'> => {
+  if (input.platform !== 'telegram') {
+    throw new TelegramApiError('Telegram adapter 只能处理 telegram 平台动作');
+  }
+
+  return {
+    chat_id: toTelegramUserId(input.platformAccountId),
+    text: input.directMessageText,
+  };
+};
+
+const createVerificationPromptGroupMessageRequestBody = (
+  input: VerificationPromptInput,
+): Pick<TelegramRequestBody, 'chat_id' | 'text'> => {
+  if (input.platform !== 'telegram') {
+    throw new TelegramApiError('Telegram adapter 只能处理 telegram 平台动作');
+  }
+
+  return {
+    chat_id: toTelegramChatId(input.communityId),
+    text: input.groupFallbackText,
+  };
+};
+
 const verificationLockedPermissions = (): TelegramChatPermissions => ({
   can_send_messages: false,
   can_send_audios: false,
@@ -207,6 +235,24 @@ export class TelegramPlatformApi {
 
   async sendDirectMessage(input: DirectMessageInput): Promise<void> {
     await this.request('sendMessage', createDirectMessageRequestBody(input));
+  }
+
+  async sendVerificationPrompt(input: VerificationPromptInput): Promise<VerificationPromptDelivery> {
+    try {
+      await this.request('sendMessage', createVerificationPromptDirectMessageRequestBody(input));
+
+      return 'direct_message';
+    } catch (error) {
+      if (!(error instanceof TelegramApiError)) {
+        throw error;
+      }
+
+      // Telegram bot 不能随意主动私聊未打开过 bot 的用户；失败时回退到群内短提示。
+      // 群内提示失败则继续抛出，让队列重试，避免新人被禁言后完全收不到验证入口。
+      await this.request('sendMessage', createVerificationPromptGroupMessageRequestBody(input));
+
+      return 'group_fallback';
+    }
   }
 
   async restrictMember(input: RestrictMemberInput): Promise<void> {

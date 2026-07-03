@@ -119,6 +119,69 @@ describe('TelegramPlatformApi', () => {
     });
   });
 
+  it('优先通过私聊发送验证引导', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse.clone());
+    const api = new TelegramPlatformApi('test-token', fetchMock);
+
+    await expect(
+      api.sendVerificationPrompt({
+        platform: 'telegram',
+        communityId: '-100123',
+        platformAccountId: '456',
+        directMessageText: '请完成验证',
+        groupFallbackText: '请点击机器人完成验证',
+      }),
+    ).resolves.toBe('direct_message');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('https://api.telegram.org/bottest-token/sendMessage', {
+      method: 'POST',
+      signal: expect.any(AbortSignal) as AbortSignal,
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: 456,
+        text: '请完成验证',
+      }),
+    });
+  });
+
+  it('私聊验证引导失败时回退到群内短提示', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: false, description: 'Forbidden: bot was blocked by the user' }), {
+          status: 403,
+          headers: {
+            'content-type': 'application/json',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(okResponse.clone());
+    const api = new TelegramPlatformApi('test-token', fetchMock);
+
+    await expect(
+      api.sendVerificationPrompt({
+        platform: 'telegram',
+        communityId: '-100123',
+        platformAccountId: '456',
+        directMessageText: '请完成验证',
+        groupFallbackText: '请点击机器人完成验证',
+      }),
+    ).resolves.toBe('group_fallback');
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://api.telegram.org/bottest-token/sendMessage', {
+      method: 'POST',
+      signal: expect.any(AbortSignal) as AbortSignal,
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: -100123,
+        text: '请点击机器人完成验证',
+      }),
+    });
+  });
+
   it('调用 restrictChatMember 完全限制未验证成员发言', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse.clone());
     const api = new TelegramPlatformApi('test-token', fetchMock);

@@ -6,6 +6,16 @@ export type DirectMessageInput = {
   text: string;
 };
 
+export type VerificationPromptInput = {
+  platform: Platform;
+  communityId: string;
+  platformAccountId: string;
+  directMessageText: string;
+  groupFallbackText: string;
+};
+
+export type VerificationPromptDelivery = 'direct_message' | 'group_fallback';
+
 export type MemberActionInput = {
   platform: Platform;
   communityId: string;
@@ -52,6 +62,7 @@ export type SendAdminReviewCardInput = {
 
 export type PlatformAdapter = {
   sendDirectMessage(input: DirectMessageInput): Promise<void>;
+  sendVerificationPrompt(input: VerificationPromptInput): Promise<VerificationPromptDelivery>;
   restrictMember(input: RestrictMemberInput): Promise<void>;
   restoreMember(input: RestoreMemberInput): Promise<void>;
   removeMember(input: RemoveMemberInput): Promise<void>;
