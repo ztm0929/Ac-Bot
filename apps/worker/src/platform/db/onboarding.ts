@@ -7,11 +7,12 @@ import {
   verificationSessions,
 } from '@ac-bot/db/schema';
 import type { Platform } from '@ac-bot/platform-contracts/core';
-import { and, desc, eq, isNull, or } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, lte, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 import type { OnboardingRepository } from '../../modules/onboarding/services/member-joined.js';
 import type { VerificationAnswerRepository } from '../../modules/onboarding/services/verification-answer.js';
+import type { VerificationTimeoutRepository } from '../../modules/onboarding/services/verification-timeout.js';
 
 const isUniqueConstraintError = (error: unknown) => {
   return error instanceof Error && error.message.includes('UNIQUE constraint failed');
@@ -295,6 +296,170 @@ export const createD1VerificationAnswerRepository = (
         platform: input.platform,
         platformAccountId: input.platformAccountId,
       };
+
+      if (input.metadata) {
+        values.metadataJson = JSON.stringify(input.metadata);
+      }
+
+      await db.insert(auditLogs).values(values);
+    },
+  };
+};
+
+export const createD1VerificationTimeoutRepository = (
+  dbBinding: D1Database,
+): VerificationTimeoutRepository => {
+  const db = drizzle(dbBinding);
+
+  const findActiveGlobalBan = async (input: { platform: Platform; platformAccountId: string }) => {
+    return db
+      .select({
+        id: bannedUsers.id,
+      })
+      .from(bannedUsers)
+      .where(
+        and(
+          eq(bannedUsers.platform, input.platform),
+          eq(bannedUsers.platformAccountId, input.platformAccountId),
+          isNull(bannedUsers.communityId),
+          isNull(bannedUsers.liftedAt),
+        ),
+      )
+      .get();
+  };
+
+  return {
+    async findExpiredPendingVerificationSessions(input) {
+      // verification_sessions 只保存平台无关的 communityId；这里通过 communities 表恢复 platform。
+      // 这样 timeout 扫描仍能按平台分批执行，后续接 QQ/Discord 时不会误扫其他平台。
+      return db
+        .select({
+          id: verificationSessions.id,
+          communityId: verificationSessions.communityId,
+          platform: communities.platform,
+          platformAccountId: verificationSessions.platformAccountId,
+          timeoutAt: verificationSessions.timeoutAt,
+        })
+        .from(verificationSessions)
+        .innerJoin(communities, eq(communities.platformResourceId, verificationSessions.communityId))
+        .where(
+          and(
+            eq(communities.platform, input.platform),
+            eq(verificationSessions.status, 'pending'),
+            lte(verificationSessions.timeoutAt, input.now),
+          ),
+        )
+        .orderBy(verificationSessions.timeoutAt)
+        .limit(input.limit);
+    },
+
+    async markVerificationSessionTimedOut(input) {
+      await db
+        .update(verificationSessions)
+        .set({
+          status: 'timeout',
+          completedAt: input.completedAt,
+          failureReason: input.failureReason,
+          updatedAt: nowIsoString(),
+        })
+        .where(
+          and(
+            eq(verificationSessions.id, input.sessionId),
+            eq(verificationSessions.status, 'pending'),
+          ),
+        );
+    },
+
+    async updateCommunityMemberStatus(input) {
+      await db
+        .update(communityMembers)
+        .set({
+          status: input.status,
+          probationUntil: null,
+          updatedAt: nowIsoString(),
+        })
+        .where(
+          and(
+            eq(communityMembers.communityId, input.communityId),
+            eq(communityMembers.platformAccountId, input.platformAccountId),
+          ),
+        );
+    },
+
+    async countVerificationTimeouts(input) {
+      const result = await db
+        .select({
+          value: count(),
+        })
+        .from(verificationSessions)
+        .innerJoin(communities, eq(communities.platformResourceId, verificationSessions.communityId))
+        .where(
+          and(
+            eq(communities.platform, input.platform),
+            eq(verificationSessions.platformAccountId, input.platformAccountId),
+            eq(verificationSessions.status, 'timeout'),
+          ),
+        )
+        .get();
+
+      return result?.value ?? 0;
+    },
+
+    async createBanIfNone(input) {
+      const existing = await findActiveGlobalBan(input);
+
+      if (existing) {
+        return {
+          status: 'existing',
+          banId: existing.id,
+        };
+      }
+
+      try {
+        await db.insert(bannedUsers).values({
+          id: input.id,
+          platform: input.platform,
+          platformAccountId: input.platformAccountId,
+          reason: input.reason,
+          bannedAt: input.bannedAt,
+        });
+
+        return {
+          status: 'created',
+          banId: input.id,
+        };
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) {
+          throw error;
+        }
+
+        const racedExisting = await findActiveGlobalBan(input);
+
+        if (!racedExisting) {
+          throw error;
+        }
+
+        return {
+          status: 'existing',
+          banId: racedExisting.id,
+        };
+      }
+    },
+
+    async appendAuditLog(input) {
+      const values: typeof auditLogs.$inferInsert = {
+        id: input.id,
+        actorType: 'system',
+        action: input.action,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        platform: input.platform,
+        platformAccountId: input.platformAccountId,
+      };
+
+      if (input.communityId) {
+        values.communityId = input.communityId;
+      }
 
       if (input.metadata) {
         values.metadataJson = JSON.stringify(input.metadata);
