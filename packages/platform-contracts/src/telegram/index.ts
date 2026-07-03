@@ -19,6 +19,7 @@ export type TelegramChatJoinRequest = {
 
 export type TelegramChat = {
   id: number | string;
+  type?: 'private' | 'group' | 'supergroup' | 'channel';
 };
 
 export type TelegramUser = {
@@ -33,6 +34,8 @@ export type TelegramMessage = {
   message_id: number;
   date: number;
   chat: TelegramChat;
+  from?: TelegramUser;
+  text?: string;
   new_chat_members?: TelegramUser[];
 };
 

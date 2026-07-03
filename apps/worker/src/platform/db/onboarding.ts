@@ -7,10 +7,11 @@ import {
   verificationSessions,
 } from '@ac-bot/db/schema';
 import type { Platform } from '@ac-bot/platform-contracts/core';
-import { and, eq, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 import type { OnboardingRepository } from '../../modules/onboarding/services/member-joined.js';
+import type { VerificationAnswerRepository } from '../../modules/onboarding/services/verification-answer.js';
 
 const isUniqueConstraintError = (error: unknown) => {
   return error instanceof Error && error.message.includes('UNIQUE constraint failed');
@@ -170,6 +171,117 @@ export const createD1OnboardingRepository = (dbBinding: D1Database): OnboardingR
           sessionId: racedExisting.id,
         };
       }
+    },
+
+    async appendAuditLog(input) {
+      const values: typeof auditLogs.$inferInsert = {
+        id: input.id,
+        actorType: 'system',
+        action: input.action,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        communityId: input.communityId,
+        platform: input.platform,
+        platformAccountId: input.platformAccountId,
+      };
+
+      if (input.metadata) {
+        values.metadataJson = JSON.stringify(input.metadata);
+      }
+
+      await db.insert(auditLogs).values(values);
+    },
+  };
+};
+
+export const createD1VerificationAnswerRepository = (
+  dbBinding: D1Database,
+): VerificationAnswerRepository => {
+  const db = drizzle(dbBinding);
+
+  return {
+    async findLatestPendingVerificationSession(input) {
+      // 一个账号可能反复离开再加入，因此历史上可能存在多个已结束 session。
+      // 这里只取最新 pending session，保证用户当前这轮私聊答案落到最近一次入群验证上。
+      return db
+        .select({
+          id: verificationSessions.id,
+          communityId: verificationSessions.communityId,
+          platformAccountId: verificationSessions.platformAccountId,
+          answerAttemptCount: verificationSessions.answerAttemptCount,
+          timeoutAt: verificationSessions.timeoutAt,
+        })
+        .from(verificationSessions)
+        .where(
+          and(
+            eq(verificationSessions.platformAccountId, input.platformAccountId),
+            eq(verificationSessions.status, 'pending'),
+          ),
+        )
+        .orderBy(desc(verificationSessions.createdAt))
+        .get();
+    },
+
+    async markVerificationSessionPassed(input) {
+      await db
+        .update(verificationSessions)
+        .set({
+          status: 'passed',
+          completedAt: input.completedAt,
+          updatedAt: nowIsoString(),
+        })
+        .where(eq(verificationSessions.id, input.sessionId));
+    },
+
+    async recordIncorrectVerificationAnswer(input) {
+      await db
+        .update(verificationSessions)
+        .set({
+          answerAttemptCount: input.answerAttemptCount,
+          updatedAt: nowIsoString(),
+        })
+        .where(eq(verificationSessions.id, input.sessionId));
+    },
+
+    async markVerificationSessionFailed(input) {
+      await db
+        .update(verificationSessions)
+        .set({
+          status: 'failed',
+          answerAttemptCount: input.answerAttemptCount,
+          completedAt: input.completedAt,
+          failureReason: input.failureReason,
+          updatedAt: nowIsoString(),
+        })
+        .where(eq(verificationSessions.id, input.sessionId));
+    },
+
+    async updateCommunityMemberStatus(input) {
+      // 答案服务可能先于某些成员资料补全流程运行；这里用 upsert 保证状态流转不依赖调用顺序。
+      // probationUntil 仅对观察期有意义，拒绝时显式清空，避免旧观察期残留影响后台判断。
+      const values: typeof communityMembers.$inferInsert = {
+        id: `${input.communityId}:${input.platformAccountId}`,
+        communityId: input.communityId,
+        platformAccountId: input.platformAccountId,
+        status: input.status,
+        updatedAt: nowIsoString(),
+      };
+
+      if (input.probationUntil) {
+        values.probationUntil = input.probationUntil;
+      }
+
+      await db
+        .insert(communityMembers)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [communityMembers.communityId, communityMembers.platformAccountId],
+          set: {
+            status: input.status,
+            probationUntil: input.probationUntil ?? null,
+            updatedAt: nowIsoString(),
+          },
+        });
     },
 
     async appendAuditLog(input) {

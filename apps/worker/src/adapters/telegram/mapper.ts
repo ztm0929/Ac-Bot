@@ -3,6 +3,7 @@ import type {
   JoinApplicationCreatedPayload,
   MemberJoinedPayload,
   PlatformEventEnvelope,
+  VerificationAnswerReceivedPayload,
 } from '@ac-bot/platform-contracts/core';
 import type {
   TelegramChatMember,
@@ -17,6 +18,7 @@ import type {
 const telegramUpdateEventType = 'telegram.update.received';
 const joinApplicationCreatedEventType = 'join_application.created';
 const memberJoinedEventType = 'member.joined';
+const verificationAnswerReceivedEventType = 'verification.answer_received';
 
 const isRecord = (input: unknown): input is Record<string, unknown> => {
   return typeof input === 'object' && input !== null;
@@ -84,6 +86,26 @@ const isTelegramMessageWithNewChatMembers = (
   );
 };
 
+const isTelegramPrivateTextMessage = (
+  input: unknown,
+): input is TelegramMessage & { from: TelegramUser; text: string } => {
+  if (!isRecord(input) || !isRecord(input.chat)) {
+    return false;
+  }
+
+  return (
+    Number.isInteger(input.message_id) &&
+    Number.isInteger(input.date) &&
+    hasTelegramId(input.chat.id) &&
+    // 验证答案只接受用户与 bot 的私聊文本，群内发言即使内容正确也不进入验证流程。
+    // 这样可以避免公开群刷屏，也避免把群消息误当作敏感验证答案处理。
+    input.chat.type === 'private' &&
+    isTelegramUser(input.from) &&
+    typeof input.text === 'string' &&
+    input.text.trim().length > 0
+  );
+};
+
 const isTelegramChatMember = (input: unknown): input is TelegramChatMember => {
   if (!isRecord(input) || !isRecord(input.user)) {
     return false;
@@ -122,6 +144,14 @@ export const isTelegramChatMemberUpdatedUpdate = (
   update: TelegramWebhookUpdate,
 ): update is TelegramWebhookUpdate & { chat_member: TelegramChatMemberUpdated } => {
   return isTelegramChatMemberUpdated(update.chat_member);
+};
+
+export const isTelegramPrivateTextMessageUpdate = (
+  update: TelegramWebhookUpdate,
+): update is TelegramWebhookUpdate & {
+  message: TelegramMessage & { from: TelegramUser; text: string };
+} => {
+  return isTelegramPrivateTextMessage(update.message);
 };
 
 export const isTelegramChatJoinRequestUpdate = (
@@ -245,4 +275,27 @@ export const createMemberJoinedEventsFromTelegramUpdate = (
   }
 
   return [];
+};
+
+export const createVerificationAnswerReceivedEventFromTelegramUpdate = (
+  update: TelegramWebhookUpdate,
+): CoreEventEnvelope<VerificationAnswerReceivedPayload> | undefined => {
+  if (!isTelegramPrivateTextMessageUpdate(update)) {
+    return undefined;
+  }
+
+  const answeredAt = toTelegramDateTime(update.message.date);
+  const platformAccountId = String(update.message.from.id);
+
+  return {
+    eventId: `telegram:${update.update_id}:verification.answer_received:${platformAccountId}`,
+    eventType: verificationAnswerReceivedEventType,
+    occurredAt: answeredAt,
+    payload: {
+      platform: 'telegram',
+      platformAccountId,
+      answerText: update.message.text,
+      answeredAt,
+    },
+  };
 };

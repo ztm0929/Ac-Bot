@@ -5,9 +5,11 @@ import type { TelegramWebhookUpdate } from '@ac-bot/platform-contracts/telegram'
 import {
   createJoinApplicationCreatedEventFromTelegramUpdate,
   createMemberJoinedEventsFromTelegramUpdate,
+  createVerificationAnswerReceivedEventFromTelegramUpdate,
   isTelegramChatMemberUpdatedUpdate,
   isTelegramChatJoinRequestUpdate,
   isTelegramNewChatMembersUpdate,
+  isTelegramPrivateTextMessageUpdate,
   isTelegramWebhookUpdate,
 } from './mapper.js';
 
@@ -201,5 +203,56 @@ describe('Telegram mapper', () => {
         },
       }),
     ).toEqual([]);
+  });
+
+  it('将私聊文本消息映射为 verification.answer_received 核心事件', () => {
+    const update = {
+      update_id: 127,
+      message: {
+        message_id: 11,
+        date: 1780000000,
+        chat: {
+          id: 456,
+          type: 'private',
+        },
+        from: {
+          id: 456,
+        },
+        text: 'configured-answer',
+      },
+    } satisfies TelegramWebhookUpdate;
+
+    expect(isTelegramPrivateTextMessageUpdate(update)).toBe(true);
+    expect(createVerificationAnswerReceivedEventFromTelegramUpdate(update)).toEqual({
+      eventId: 'telegram:127:verification.answer_received:456',
+      eventType: 'verification.answer_received',
+      occurredAt: '2026-05-28T20:26:40.000Z',
+      payload: {
+        platform: 'telegram',
+        platformAccountId: '456',
+        answerText: 'configured-answer',
+        answeredAt: '2026-05-28T20:26:40.000Z',
+      },
+    });
+  });
+
+  it('群聊文本消息不生成 verification.answer_received 事件', () => {
+    expect(
+      createVerificationAnswerReceivedEventFromTelegramUpdate({
+        update_id: 128,
+        message: {
+          message_id: 12,
+          date: 1780000000,
+          chat: {
+            id: -100123,
+            type: 'supergroup',
+          },
+          from: {
+            id: 456,
+          },
+          text: 'configured-answer',
+        },
+      }),
+    ).toBeUndefined();
   });
 });

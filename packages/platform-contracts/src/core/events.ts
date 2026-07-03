@@ -4,6 +4,7 @@ export type CoreEventType =
   | 'join_application.created'
   | 'join_application.risk_scored'
   | 'verification.session_created'
+  | 'verification.answer_received'
   | 'verification.completed'
   | 'member.approved'
   | 'member.rejected'
@@ -32,4 +33,11 @@ export type MemberJoinedPayload = {
   platformAccountId: string;
   communityId: string;
   joinedAt: IsoDateTimeString;
+};
+
+export type VerificationAnswerReceivedPayload = {
+  platform: Platform;
+  platformAccountId: string;
+  answerText: string;
+  answeredAt: IsoDateTimeString;
 };

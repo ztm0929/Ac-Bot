@@ -1,37 +1,48 @@
-import type { CoreEventEnvelope, MemberJoinedPayload, PlatformEventEnvelope } from '@ac-bot/platform-contracts/core';
+import type {
+  CoreEventEnvelope,
+  MemberJoinedPayload,
+  PlatformEventEnvelope,
+  VerificationAnswerReceivedPayload,
+} from '@ac-bot/platform-contracts/core';
 import { isPlatformEventEnvelope } from '@ac-bot/platform-contracts/core';
 
 import { TelegramPlatformApi } from '../adapters/telegram/api.js';
 import {
   createMemberJoinedEventsFromTelegramUpdate,
   createJoinApplicationCreatedEventFromTelegramUpdate,
+  createVerificationAnswerReceivedEventFromTelegramUpdate,
   isTelegramWebhookUpdate,
 } from '../adapters/telegram/mapper.js';
 import type { WorkerBindings } from '../app/env.js';
 import { MemberJoinedOnboardingService } from '../modules/onboarding/services/member-joined.js';
+import { VerificationAnswerService } from '../modules/onboarding/services/verification-answer.js';
 import { persistJoinApplicationCreatedEvent } from '../platform/db/join-applications.js';
-import { createD1OnboardingRepository } from '../platform/db/onboarding.js';
+import {
+  createD1OnboardingRepository,
+  createD1VerificationAnswerRepository,
+} from '../platform/db/onboarding.js';
 import { persistPlatformEvent } from '../platform/db/platform-events.js';
 
 const defaultVerificationTimeoutMinutes = 3;
+const defaultVerificationMaxAnswerAttempts = 3;
+const defaultProbationMinutes = 1440;
 
 export type PlatformEventProcessorDependencies = {
   persistPlatformEvent: typeof persistPlatformEvent;
   persistJoinApplicationCreatedEvent: typeof persistJoinApplicationCreatedEvent;
   handleMemberJoined(input: CoreEventEnvelope<MemberJoinedPayload>): Promise<void>;
+  handleVerificationAnswer(input: CoreEventEnvelope<VerificationAnswerReceivedPayload>): Promise<void>;
 };
 
-const readVerificationTimeoutMinutes = (env: WorkerBindings) => {
-  const configuredValue = env.VERIFICATION_TIMEOUT_MINUTES;
-
+const readPositiveIntegerEnv = (configuredValue: string | undefined, fallback: number) => {
   if (!configuredValue) {
-    return defaultVerificationTimeoutMinutes;
+    return fallback;
   }
 
   const parsedValue = Number(configuredValue);
 
   if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
-    return defaultVerificationTimeoutMinutes;
+    return fallback;
   }
 
   return parsedValue;
@@ -40,6 +51,8 @@ const readVerificationTimeoutMinutes = (env: WorkerBindings) => {
 const createDefaultDependencies = (env: WorkerBindings): PlatformEventProcessorDependencies => {
   const onboardingRepository = createD1OnboardingRepository(env.DB);
   const onboardingService = new MemberJoinedOnboardingService(onboardingRepository);
+  const verificationAnswerRepository = createD1VerificationAnswerRepository(env.DB);
+  const verificationAnswerService = new VerificationAnswerService(verificationAnswerRepository);
   const telegramApi = env.TELEGRAM_BOT_TOKEN
     ? new TelegramPlatformApi(env.TELEGRAM_BOT_TOKEN)
     : undefined;
@@ -49,7 +62,10 @@ const createDefaultDependencies = (env: WorkerBindings): PlatformEventProcessorD
     persistJoinApplicationCreatedEvent,
     async handleMemberJoined(coreEvent) {
       const result = await onboardingService.handleMemberJoined(coreEvent, {
-        verificationTimeoutMinutes: readVerificationTimeoutMinutes(env),
+        verificationTimeoutMinutes: readPositiveIntegerEnv(
+          env.VERIFICATION_TIMEOUT_MINUTES,
+          defaultVerificationTimeoutMinutes,
+        ),
       });
 
       if (!telegramApi) {
@@ -73,6 +89,48 @@ const createDefaultDependencies = (env: WorkerBindings): PlatformEventProcessorD
         mode: 'verification_locked',
       });
     },
+    async handleVerificationAnswer(coreEvent) {
+      if (!env.VERIFICATION_ANSWER_TEXT) {
+        throw new Error('VERIFICATION_ANSWER_TEXT 未配置，无法校验验证答案');
+      }
+
+      const result = await verificationAnswerService.handleVerificationAnswer(coreEvent, {
+        expectedAnswerText: env.VERIFICATION_ANSWER_TEXT,
+        maxAnswerAttempts: readPositiveIntegerEnv(
+          env.VERIFICATION_MAX_ANSWER_ATTEMPTS,
+          defaultVerificationMaxAnswerAttempts,
+        ),
+        probationMinutes: readPositiveIntegerEnv(env.PROBATION_MINUTES, defaultProbationMinutes),
+      });
+
+      if (result.status === 'passed') {
+        if (!telegramApi) {
+          throw new Error('TELEGRAM_BOT_TOKEN 未配置，无法恢复验证通过成员权限');
+        }
+
+        await telegramApi.restoreMember({
+          platform: coreEvent.payload.platform,
+          communityId: result.communityId,
+          platformAccountId: coreEvent.payload.platformAccountId,
+          mode: 'probation_text_only',
+          reason: 'verification_passed',
+        });
+        return;
+      }
+
+      if (result.status === 'failed') {
+        if (!telegramApi) {
+          throw new Error('TELEGRAM_BOT_TOKEN 未配置，无法移出验证失败成员');
+        }
+
+        await telegramApi.removeMember({
+          platform: coreEvent.payload.platform,
+          communityId: result.communityId,
+          platformAccountId: coreEvent.payload.platformAccountId,
+          reason: 'verification_failed',
+        });
+      }
+    },
   };
 };
 
@@ -81,7 +139,7 @@ export const processPlatformEventEnvelope = async (
   envelope: PlatformEventEnvelope,
   dependencies: PlatformEventProcessorDependencies = createDefaultDependencies(env),
 ) => {
-  await dependencies.persistPlatformEvent(env.DB, envelope);
+  const persistedPlatformEvent = await dependencies.persistPlatformEvent(env.DB, envelope);
 
   if (
     envelope.platform !== 'telegram' ||
@@ -107,6 +165,16 @@ export const processPlatformEventEnvelope = async (
   // 一个 Telegram message 可能包含多个 new_chat_members；必须逐个处理，避免只限制第一个新人。
   for (const memberJoinedEvent of memberJoinedEvents) {
     await dependencies.handleMemberJoined(memberJoinedEvent);
+  }
+
+  const verificationAnswerReceivedEvent = createVerificationAnswerReceivedEventFromTelegramUpdate(
+    envelope.payload,
+  );
+
+  // 答案事件会改变答题次数，不能像禁言动作一样在 Telegram 重试时重复执行。
+  // 这里依赖 platform_events 的 rawEventId 去重，避免同一条私聊消息被重复计为多次错误。
+  if (verificationAnswerReceivedEvent && persistedPlatformEvent.status === 'created') {
+    await dependencies.handleVerificationAnswer(verificationAnswerReceivedEvent);
   }
 };
 
