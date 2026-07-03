@@ -319,13 +319,38 @@ restoreMember -> restrictChatMember 或 unbanChatMember
 sendVerificationMessage -> sendMessage
 ```
 
+Telegram 的成员权限模型由 `ChatPermissions` 表示。入群后验证不能只抽象为“禁言/解除禁言”一个开关；实现时应明确配置需要关闭或恢复的权限字段，尤其是：
+
+```text
+can_send_messages
+can_send_audios
+can_send_documents
+can_send_photos
+can_send_videos
+can_send_video_notes
+can_send_voice_notes
+can_send_polls
+can_send_other_messages
+can_add_web_page_previews
+can_react_to_messages
+can_edit_tag
+can_change_info
+can_invite_users
+can_pin_messages
+can_manage_topics
+```
+
+调用 `restrictChatMember` 或 `setChatPermissions` 时应优先使用 `use_independent_chat_permissions = true`，避免 Telegram 按隐含规则把某些权限重新放开。例如 `can_send_other_messages` 和 `can_add_web_page_previews` 可能隐含放开多种发送权限；`can_send_polls` 可能隐含放开 `can_send_messages`。本项目的新成员限制策略应显式关闭发送消息、发送媒体、发送其他消息、网页预览、反应和编辑标签等会影响群内可见行为的权限；验证通过后再恢复到社区配置允许的权限集合。
+
 `chat_join_request`、`ChatJoinRequest`、`approveChatJoinRequest`、`declineChatJoinRequest` 和 Join Request Queries 仍作为 Telegram adapter 的可选能力保留，用于私有群、特殊邀请链接或未来扩展；它们不再是公开群 MVP 主路径。
 
 文档：
 
 - `Message.new_chat_members`: <https://core.telegram.org/bots/api#message>
 - `ChatMemberUpdated`: <https://core.telegram.org/bots/api#chatmemberupdated>
+- `ChatPermissions`: <https://core.telegram.org/bots/api#chatpermissions>
 - `restrictChatMember`: <https://core.telegram.org/bots/api#restrictchatmember>
+- `setChatPermissions`: <https://core.telegram.org/bots/api#setchatpermissions>
 - `banChatMember`: <https://core.telegram.org/bots/api#banchatmember>
 - `unbanChatMember`: <https://core.telegram.org/bots/api#unbanchatmember>
 - `sendMessage`: <https://core.telegram.org/bots/api#sendmessage>
@@ -993,7 +1018,9 @@ Telegram：
 - `approveChatJoinRequest`: <https://core.telegram.org/bots/api#approvechatjoinrequest>
 - `declineChatJoinRequest`: <https://core.telegram.org/bots/api#declinechatjoinrequest>
 - `ChatMemberUpdated`: <https://core.telegram.org/bots/api#chatmemberupdated>
+- `ChatPermissions`: <https://core.telegram.org/bots/api#chatpermissions>
 - `restrictChatMember`: <https://core.telegram.org/bots/api#restrictchatmember>
+- `setChatPermissions`: <https://core.telegram.org/bots/api#setchatpermissions>
 - `banChatMember`: <https://core.telegram.org/bots/api#banchatmember>
 - `unbanChatMember`: <https://core.telegram.org/bots/api#unbanchatmember>
 - `sendChatJoinRequestWebApp`: <https://core.telegram.org/bots/api#sendchatjoinrequestwebapp>
