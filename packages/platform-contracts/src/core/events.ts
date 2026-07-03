@@ -26,3 +26,10 @@ export type JoinApplicationCreatedPayload = {
   applicationId: string;
   sourceId?: string;
 };
+
+export type MemberJoinedPayload = {
+  platform: Platform;
+  platformAccountId: string;
+  communityId: string;
+  joinedAt: IsoDateTimeString;
+};
