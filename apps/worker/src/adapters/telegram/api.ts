@@ -1,6 +1,12 @@
 import type {
   ApproveJoinApplicationInput,
+  BanMemberInput,
+  DirectMessageInput,
   RejectJoinApplicationInput,
+  RemoveMemberInput,
+  RestoreMemberInput,
+  RestrictMemberInput,
+  UnbanMemberInput,
 } from '@ac-bot/platform-contracts/core';
 
 const telegramApiTimeoutMs = 10_000;
@@ -10,9 +16,32 @@ type TelegramApiResponse = {
   description?: string;
 };
 
+type TelegramChatPermissions = {
+  can_send_messages?: boolean;
+  can_send_audios?: boolean;
+  can_send_documents?: boolean;
+  can_send_photos?: boolean;
+  can_send_videos?: boolean;
+  can_send_video_notes?: boolean;
+  can_send_voice_notes?: boolean;
+  can_send_polls?: boolean;
+  can_send_other_messages?: boolean;
+  can_add_web_page_previews?: boolean;
+  can_react_to_messages?: boolean;
+  can_change_info?: boolean;
+  can_invite_users?: boolean;
+  can_pin_messages?: boolean;
+  can_manage_topics?: boolean;
+};
+
 type TelegramRequestBody = {
   chat_id: number | string;
+  text?: string;
   user_id: number;
+  permissions?: TelegramChatPermissions;
+  use_independent_chat_permissions?: boolean;
+  revoke_messages?: boolean;
+  only_if_banned?: boolean;
 };
 
 export class TelegramApiError extends Error {
@@ -55,8 +84,15 @@ const toTelegramUserId = (platformAccountId: string): number => {
 };
 
 const createRequestBody = (
-  input: ApproveJoinApplicationInput | RejectJoinApplicationInput,
-): TelegramRequestBody => {
+  input:
+    | ApproveJoinApplicationInput
+    | RejectJoinApplicationInput
+    | RestrictMemberInput
+    | RestoreMemberInput
+    | RemoveMemberInput
+    | BanMemberInput
+    | UnbanMemberInput,
+): Pick<TelegramRequestBody, 'chat_id' | 'user_id'> => {
   if (input.platform !== 'telegram') {
     throw new TelegramApiError('Telegram adapter 只能处理 telegram 平台动作');
   }
@@ -64,6 +100,94 @@ const createRequestBody = (
   return {
     chat_id: toTelegramChatId(input.communityId),
     user_id: toTelegramUserId(input.platformAccountId),
+  };
+};
+
+const createDirectMessageRequestBody = (
+  input: DirectMessageInput,
+): Pick<TelegramRequestBody, 'chat_id' | 'text'> => {
+  if (input.platform !== 'telegram') {
+    throw new TelegramApiError('Telegram adapter 只能处理 telegram 平台动作');
+  }
+
+  return {
+    chat_id: toTelegramUserId(input.platformAccountId),
+    text: input.text,
+  };
+};
+
+const verificationLockedPermissions = (): TelegramChatPermissions => ({
+  can_send_messages: false,
+  can_send_audios: false,
+  can_send_documents: false,
+  can_send_photos: false,
+  can_send_videos: false,
+  can_send_video_notes: false,
+  can_send_voice_notes: false,
+  can_send_polls: false,
+  can_send_other_messages: false,
+  can_add_web_page_previews: false,
+  can_react_to_messages: false,
+  can_change_info: false,
+  can_invite_users: false,
+  can_pin_messages: false,
+  can_manage_topics: false,
+});
+
+const probationTextOnlyPermissions = (): TelegramChatPermissions => ({
+  can_send_messages: true,
+  can_send_audios: false,
+  can_send_documents: false,
+  can_send_photos: false,
+  can_send_videos: false,
+  can_send_video_notes: false,
+  can_send_voice_notes: false,
+  can_send_polls: false,
+  can_send_other_messages: false,
+  can_add_web_page_previews: false,
+  can_react_to_messages: false,
+  can_change_info: false,
+  can_invite_users: false,
+  can_pin_messages: false,
+  can_manage_topics: false,
+});
+
+const createRestrictMemberRequestBody = (input: RestrictMemberInput): TelegramRequestBody => {
+  const body = createRequestBody(input);
+
+  return {
+    ...body,
+    permissions:
+      input.mode === 'verification_locked' ? verificationLockedPermissions() : probationTextOnlyPermissions(),
+    use_independent_chat_permissions: true,
+  };
+};
+
+const createRestoreMemberRequestBody = (input: RestoreMemberInput): TelegramRequestBody => {
+  const body = createRequestBody(input);
+
+  return {
+    ...body,
+    permissions: probationTextOnlyPermissions(),
+    use_independent_chat_permissions: true,
+  };
+};
+
+const createBanMemberRequestBody = (input: RemoveMemberInput | BanMemberInput): TelegramRequestBody => {
+  const body = createRequestBody(input);
+
+  return {
+    ...body,
+    revoke_messages: false,
+  };
+};
+
+const createUnbanMemberRequestBody = (input: RemoveMemberInput | UnbanMemberInput): TelegramRequestBody => {
+  const body = createRequestBody(input);
+
+  return {
+    ...body,
+    only_if_banned: true,
   };
 };
 
@@ -81,7 +205,36 @@ export class TelegramPlatformApi {
     await this.request('declineChatJoinRequest', createRequestBody(input));
   }
 
-  private async request(method: string, body: TelegramRequestBody): Promise<void> {
+  async sendDirectMessage(input: DirectMessageInput): Promise<void> {
+    await this.request('sendMessage', createDirectMessageRequestBody(input));
+  }
+
+  async restrictMember(input: RestrictMemberInput): Promise<void> {
+    await this.request('restrictChatMember', createRestrictMemberRequestBody(input));
+  }
+
+  async restoreMember(input: RestoreMemberInput): Promise<void> {
+    await this.request('restrictChatMember', createRestoreMemberRequestBody(input));
+  }
+
+  async removeMember(input: RemoveMemberInput): Promise<void> {
+    await this.request('banChatMember', createBanMemberRequestBody(input));
+    // Telegram 没有单独的 kick 方法；先 ban 再 unban 可以把成员移出，同时允许后续重新加入。
+    await this.request('unbanChatMember', createUnbanMemberRequestBody(input));
+  }
+
+  async banMember(input: BanMemberInput): Promise<void> {
+    await this.request('banChatMember', createBanMemberRequestBody(input));
+  }
+
+  async unbanMember(input: UnbanMemberInput): Promise<void> {
+    await this.request('unbanChatMember', createUnbanMemberRequestBody(input));
+  }
+
+  private async request(
+    method: string,
+    body: Pick<TelegramRequestBody, 'chat_id' | 'text'> | TelegramRequestBody,
+  ): Promise<void> {
     const abortController = new AbortController();
     // 外部平台请求不能无限挂起；超时后交给后续调用方按失败路径处理和重试。
     const timeout = setTimeout(() => abortController.abort(), telegramApiTimeoutMs);
