@@ -35,6 +35,7 @@ const isTelegramApiResponse = (input: unknown): input is TelegramApiResponse => 
 const toTelegramChatId = (communityId: string): number | string => {
   const numericId = Number(communityId);
 
+  // 核心层统一把平台资源 ID 存成字符串；调用 Telegram API 时再恢复可安全表达的数字 ID。
   if (Number.isSafeInteger(numericId) && String(numericId) === communityId) {
     return numericId;
   }
@@ -45,6 +46,7 @@ const toTelegramChatId = (communityId: string): number | string => {
 const toTelegramUserId = (platformAccountId: string): number => {
   const userId = Number(platformAccountId);
 
+  // Telegram Bot API 的 user_id 必须是数字；不能安全还原时直接失败，避免审批打到错误账号。
   if (!Number.isSafeInteger(userId) || String(userId) !== platformAccountId) {
     throw new TelegramApiError('Telegram 用户 ID 必须是安全整数');
   }
@@ -81,6 +83,7 @@ export class TelegramPlatformApi {
 
   private async request(method: string, body: TelegramRequestBody): Promise<void> {
     const abortController = new AbortController();
+    // 外部平台请求不能无限挂起；超时后交给后续调用方按失败路径处理和重试。
     const timeout = setTimeout(() => abortController.abort(), telegramApiTimeoutMs);
 
     try {
