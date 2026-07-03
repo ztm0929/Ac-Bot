@@ -4,6 +4,7 @@ export type WorkerBindings = {
   PLATFORM_EVENTS: Queue;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
+  VERIFICATION_TIMEOUT_MINUTES?: string;
 };
 
 export type WorkerEnv = {
