@@ -22,13 +22,13 @@ class FakeVerificationAnswerRepository implements VerificationAnswerRepository {
     id: string;
     platform: Platform;
     platformAccountId: string;
-    reason: 'verification_failed_limit_exceeded';
+    reason: 'verification_failed_limit_exceeded' | 'high_risk_after_verification';
     bannedAt: string;
   }> = [];
   memberStatuses: Array<{
     communityId: string;
     platformAccountId: string;
-    status: 'probation' | 'rejected' | 'banned';
+    status: 'probation' | 'manual_review' | 'rejected' | 'banned';
     probationUntil?: string;
   }> = [];
   auditLogs: Array<{ action: string; targetId: string }> = [];
@@ -62,7 +62,7 @@ class FakeVerificationAnswerRepository implements VerificationAnswerRepository {
     id: string;
     platform: Platform;
     platformAccountId: string;
-    reason: 'verification_failed_limit_exceeded';
+    reason: 'verification_failed_limit_exceeded' | 'high_risk_after_verification';
     bannedAt: string;
   }) {
     this.bans.push(input);
@@ -76,7 +76,7 @@ class FakeVerificationAnswerRepository implements VerificationAnswerRepository {
   async updateCommunityMemberStatus(input: {
     communityId: string;
     platformAccountId: string;
-    status: 'probation' | 'rejected' | 'banned';
+    status: 'probation' | 'manual_review' | 'rejected' | 'banned';
     probationUntil?: string;
   }) {
     this.memberStatuses.push(input);
@@ -87,8 +87,10 @@ class FakeVerificationAnswerRepository implements VerificationAnswerRepository {
   }
 }
 
-const createService = (repository: FakeVerificationAnswerRepository) => {
-  const ids = ['audit-1', 'ban-1', 'audit-ban-1'];
+const createService = (
+  repository: FakeVerificationAnswerRepository,
+  ids = ['audit-1', 'ban-1', 'audit-ban-1'],
+) => {
   let index = 0;
 
   return new VerificationAnswerService(
@@ -134,6 +136,11 @@ const options = {
   maxAnswerAttempts: 3,
   maxVerificationFailures: 3,
   probationMinutes: 1440,
+  riskDecision: {
+    level: 'low' as const,
+    score: 10,
+    reasons: ['configured_risk_level:low'],
+  },
 };
 
 describe('VerificationAnswerService', () => {
@@ -152,6 +159,11 @@ describe('VerificationAnswerService', () => {
       sessionId: 'session-1',
       communityId: '-100123',
       probationUntil: '2026-07-04T12:00:00.000Z',
+      riskDecision: {
+        level: 'low',
+        score: 10,
+        reasons: ['configured_risk_level:low'],
+      },
     });
     expect(repository.passedSessions).toEqual([
       {
@@ -178,6 +190,132 @@ describe('VerificationAnswerService', () => {
         platformAccountId: '456',
         metadata: {
           eventId: 'telegram:200:verification.answer_received:456',
+          riskLevel: 'low',
+          riskScore: '10',
+          reasons: 'configured_risk_level:low',
+        },
+      },
+    ]);
+  });
+
+  it('答案正确但中风险时进入人工审核且不恢复权限', async () => {
+    const repository = new FakeVerificationAnswerRepository();
+    repository.pendingSession = pendingSession;
+    const service = createService(repository);
+
+    const result = await service.handleVerificationAnswer(createAnswerInput('configured-answer'), {
+      ...options,
+      riskDecision: {
+        level: 'medium',
+        score: 50,
+        reasons: ['configured_risk_level:medium'],
+      },
+    });
+
+    expect(result).toEqual({
+      status: 'manual_review',
+      sessionId: 'session-1',
+      communityId: '-100123',
+      riskDecision: {
+        level: 'medium',
+        score: 50,
+        reasons: ['configured_risk_level:medium'],
+      },
+    });
+    expect(repository.memberStatuses).toEqual([
+      {
+        communityId: '-100123',
+        platformAccountId: '456',
+        status: 'manual_review',
+      },
+    ]);
+    expect(repository.auditLogs).toEqual([
+      {
+        id: 'audit-1',
+        action: 'risk.routed',
+        targetType: 'verification_session',
+        targetId: 'session-1',
+        communityId: '-100123',
+        platform: 'telegram',
+        platformAccountId: '456',
+        metadata: {
+          eventId: 'telegram:200:verification.answer_received:456',
+          riskLevel: 'medium',
+          riskScore: '50',
+          reasons: 'configured_risk_level:medium',
+        },
+      },
+    ]);
+  });
+
+  it('答案正确但高风险时直接创建永久拉黑记录', async () => {
+    const repository = new FakeVerificationAnswerRepository();
+    repository.pendingSession = pendingSession;
+    const service = createService(repository, ['ban-1', 'audit-1', 'audit-ban-1']);
+
+    const result = await service.handleVerificationAnswer(createAnswerInput('configured-answer'), {
+      ...options,
+      riskDecision: {
+        level: 'high',
+        score: 90,
+        reasons: ['configured_risk_level:high'],
+      },
+    });
+
+    expect(result).toEqual({
+      status: 'high_risk_banned',
+      sessionId: 'session-1',
+      communityId: '-100123',
+      banId: 'ban-1',
+      riskDecision: {
+        level: 'high',
+        score: 90,
+        reasons: ['configured_risk_level:high'],
+      },
+    });
+    expect(repository.bans).toEqual([
+      {
+        id: 'ban-1',
+        platform: 'telegram',
+        platformAccountId: '456',
+        reason: 'high_risk_after_verification',
+        bannedAt: '2026-07-03T12:00:00.000Z',
+      },
+    ]);
+    expect(repository.memberStatuses).toEqual([
+      {
+        communityId: '-100123',
+        platformAccountId: '456',
+        status: 'banned',
+      },
+    ]);
+    expect(repository.auditLogs).toEqual([
+      {
+        id: 'audit-1',
+        action: 'risk.routed',
+        targetType: 'verification_session',
+        targetId: 'session-1',
+        communityId: '-100123',
+        platform: 'telegram',
+        platformAccountId: '456',
+        metadata: {
+          eventId: 'telegram:200:verification.answer_received:456',
+          riskLevel: 'high',
+          riskScore: '90',
+          reasons: 'configured_risk_level:high',
+        },
+      },
+      {
+        id: 'audit-ban-1',
+        action: 'member.banned',
+        targetType: 'banned_user',
+        targetId: 'ban-1',
+        communityId: '-100123',
+        platform: 'telegram',
+        platformAccountId: '456',
+        metadata: {
+          reason: 'high_risk_after_verification',
+          sessionId: 'session-1',
         },
       },
     ]);
