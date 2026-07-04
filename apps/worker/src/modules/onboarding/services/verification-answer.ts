@@ -35,10 +35,30 @@ export type VerificationAnswerRepository = {
     answerAttemptCount: number;
     failureReason: 'answer_attempts_exceeded';
   }): Promise<void>;
+  countVerificationFailures(input: {
+    platform: Platform;
+    platformAccountId: string;
+  }): Promise<number>;
+  createBanIfNone(input: {
+    id: string;
+    platform: Platform;
+    platformAccountId: string;
+    reason: 'verification_failed_limit_exceeded';
+    bannedAt: string;
+  }): Promise<
+    | {
+        status: 'created';
+        banId: string;
+      }
+    | {
+        status: 'existing';
+        banId: string;
+      }
+  >;
   updateCommunityMemberStatus(input: {
     communityId: string;
     platformAccountId: string;
-    status: 'probation' | 'rejected';
+    status: 'probation' | 'rejected' | 'banned';
     probationUntil?: string;
   }): Promise<void>;
   appendAuditLog(input: {
@@ -61,6 +81,7 @@ export type HandleVerificationAnswerInput = {
 export type HandleVerificationAnswerOptions = {
   expectedAnswerText: string;
   maxAnswerAttempts: number;
+  maxVerificationFailures: number;
   probationMinutes: number;
 };
 
@@ -81,6 +102,8 @@ export type HandleVerificationAnswerResult =
       sessionId: string;
       communityId: string;
       answerAttemptCount: number;
+      failureCount: number;
+      banId?: string;
     }
   | {
       status: 'no_pending_session';
@@ -174,11 +197,6 @@ export class VerificationAnswerService {
         answerAttemptCount: nextAttemptCount,
         failureReason: 'answer_attempts_exceeded',
       });
-      await this.repository.updateCommunityMemberStatus({
-        communityId: session.communityId,
-        platformAccountId: session.platformAccountId,
-        status: 'rejected',
-      });
       await this.repository.appendAuditLog({
         id: this.idGenerator.randomUUID(),
         action: 'verification.failed',
@@ -193,11 +211,62 @@ export class VerificationAnswerService {
         },
       });
 
+      const failureCount = await this.repository.countVerificationFailures({
+        platform: input.payload.platform,
+        platformAccountId: session.platformAccountId,
+      });
+
+      if (failureCount >= options.maxVerificationFailures) {
+        const ban = await this.repository.createBanIfNone({
+          id: this.idGenerator.randomUUID(),
+          platform: input.payload.platform,
+          platformAccountId: session.platformAccountId,
+          reason: 'verification_failed_limit_exceeded',
+          bannedAt: completedAt,
+        });
+
+        await this.repository.updateCommunityMemberStatus({
+          communityId: session.communityId,
+          platformAccountId: session.platformAccountId,
+          status: 'banned',
+        });
+        await this.repository.appendAuditLog({
+          id: this.idGenerator.randomUUID(),
+          action: 'member.banned',
+          targetType: 'banned_user',
+          targetId: ban.banId,
+          communityId: session.communityId,
+          platform: input.payload.platform,
+          platformAccountId: session.platformAccountId,
+          metadata: {
+            reason: 'verification_failed_limit_exceeded',
+            sessionId: session.id,
+          },
+        });
+
+        return {
+          status: 'failed',
+          sessionId: session.id,
+          communityId: session.communityId,
+          answerAttemptCount: nextAttemptCount,
+          failureCount,
+          banId: ban.banId,
+        };
+      }
+
+      // 单次 session 已失败但还没达到永久拉黑阈值；平台层会移出本次入群成员。
+      await this.repository.updateCommunityMemberStatus({
+        communityId: session.communityId,
+        platformAccountId: session.platformAccountId,
+        status: 'rejected',
+      });
+
       return {
         status: 'failed',
         sessionId: session.id,
         communityId: session.communityId,
         answerAttemptCount: nextAttemptCount,
+        failureCount,
       };
     }
 

@@ -28,6 +28,26 @@ const toCommunityRowId = (platform: Platform, communityId: string) => {
 
 const nowIsoString = () => new Date().toISOString();
 
+const findActiveGlobalBan = (db: ReturnType<typeof drizzle>, input: {
+  platform: Platform;
+  platformAccountId: string;
+}) => {
+  return db
+    .select({
+      id: bannedUsers.id,
+    })
+    .from(bannedUsers)
+    .where(
+      and(
+        eq(bannedUsers.platform, input.platform),
+        eq(bannedUsers.platformAccountId, input.platformAccountId),
+        isNull(bannedUsers.communityId),
+        isNull(bannedUsers.liftedAt),
+      ),
+    )
+    .get();
+};
+
 export const createD1OnboardingRepository = (dbBinding: D1Database): OnboardingRepository => {
   const db = drizzle(dbBinding);
 
@@ -257,6 +277,66 @@ export const createD1VerificationAnswerRepository = (
         .where(eq(verificationSessions.id, input.sessionId));
     },
 
+    async countVerificationFailures(input) {
+      const result = await db
+        .select({
+          value: count(),
+        })
+        .from(verificationSessions)
+        .innerJoin(communities, eq(communities.platformResourceId, verificationSessions.communityId))
+        .where(
+          and(
+            eq(communities.platform, input.platform),
+            eq(verificationSessions.platformAccountId, input.platformAccountId),
+            eq(verificationSessions.status, 'failed'),
+          ),
+        )
+        .get();
+
+      return result?.value ?? 0;
+    },
+
+    async createBanIfNone(input) {
+      const existing = await findActiveGlobalBan(db, input);
+
+      if (existing) {
+        return {
+          status: 'existing',
+          banId: existing.id,
+        };
+      }
+
+      try {
+        await db.insert(bannedUsers).values({
+          id: input.id,
+          platform: input.platform,
+          platformAccountId: input.platformAccountId,
+          reason: input.reason,
+          bannedAt: input.bannedAt,
+        });
+
+        return {
+          status: 'created',
+          banId: input.id,
+        };
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) {
+          throw error;
+        }
+
+        const racedExisting = await findActiveGlobalBan(db, input);
+
+        if (!racedExisting) {
+          throw error;
+        }
+
+        return {
+          status: 'existing',
+          banId: racedExisting.id,
+        };
+      }
+    },
+
     async updateCommunityMemberStatus(input) {
       // 答案服务可能先于某些成员资料补全流程运行；这里用 upsert 保证状态流转不依赖调用顺序。
       // probationUntil 仅对观察期有意义，拒绝时显式清空，避免旧观察期残留影响后台判断。
@@ -310,23 +390,6 @@ export const createD1VerificationTimeoutRepository = (
   dbBinding: D1Database,
 ): VerificationTimeoutRepository => {
   const db = drizzle(dbBinding);
-
-  const findActiveGlobalBan = async (input: { platform: Platform; platformAccountId: string }) => {
-    return db
-      .select({
-        id: bannedUsers.id,
-      })
-      .from(bannedUsers)
-      .where(
-        and(
-          eq(bannedUsers.platform, input.platform),
-          eq(bannedUsers.platformAccountId, input.platformAccountId),
-          isNull(bannedUsers.communityId),
-          isNull(bannedUsers.liftedAt),
-        ),
-      )
-      .get();
-  };
 
   return {
     async findExpiredPendingVerificationSessions(input) {
@@ -406,7 +469,7 @@ export const createD1VerificationTimeoutRepository = (
     },
 
     async createBanIfNone(input) {
-      const existing = await findActiveGlobalBan(input);
+      const existing = await findActiveGlobalBan(db, input);
 
       if (existing) {
         return {
@@ -433,7 +496,7 @@ export const createD1VerificationTimeoutRepository = (
           throw error;
         }
 
-        const racedExisting = await findActiveGlobalBan(input);
+        const racedExisting = await findActiveGlobalBan(db, input);
 
         if (!racedExisting) {
           throw error;

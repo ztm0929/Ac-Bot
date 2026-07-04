@@ -25,6 +25,7 @@ import { persistPlatformEvent } from '../platform/db/platform-events.js';
 
 const defaultVerificationTimeoutMinutes = 3;
 const defaultVerificationMaxAnswerAttempts = 3;
+const defaultVerificationMaxFailures = 3;
 const defaultProbationMinutes = 1440;
 const defaultVerificationPromptText = '欢迎加入社群，请在机器人私聊窗口完成新人验证。';
 const defaultVerificationPromptGroupFallbackText =
@@ -113,6 +114,10 @@ const createDefaultDependencies = (env: WorkerBindings): PlatformEventProcessorD
           env.VERIFICATION_MAX_ANSWER_ATTEMPTS,
           defaultVerificationMaxAnswerAttempts,
         ),
+        maxVerificationFailures: readPositiveIntegerEnv(
+          env.VERIFICATION_MAX_FAILURES,
+          defaultVerificationMaxFailures,
+        ),
         probationMinutes: readPositiveIntegerEnv(env.PROBATION_MINUTES, defaultProbationMinutes),
       });
 
@@ -133,7 +138,17 @@ const createDefaultDependencies = (env: WorkerBindings): PlatformEventProcessorD
 
       if (result.status === 'failed') {
         if (!telegramApi) {
-          throw new Error('TELEGRAM_BOT_TOKEN 未配置，无法移出验证失败成员');
+          throw new Error('TELEGRAM_BOT_TOKEN 未配置，无法处理验证失败成员');
+        }
+
+        if (result.banId) {
+          await telegramApi.banMember({
+            platform: coreEvent.payload.platform,
+            communityId: result.communityId,
+            platformAccountId: coreEvent.payload.platformAccountId,
+            reason: 'verification_failed_limit_exceeded',
+          });
+          return;
         }
 
         await telegramApi.removeMember({
