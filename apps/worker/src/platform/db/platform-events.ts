@@ -10,8 +10,34 @@ export type PersistPlatformEventResult =
       status: 'duplicate';
     };
 
+const collectErrorMessages = (error: unknown, visitedErrors = new Set<unknown>()): string[] => {
+  if (visitedErrors.has(error)) {
+    return [];
+  }
+
+  visitedErrors.add(error);
+
+  if (error instanceof Error) {
+    return [error.message, ...collectErrorMessages(error.cause, visitedErrors)];
+  }
+
+  if (typeof error !== 'object' || error === null || !('cause' in error)) {
+    return [];
+  }
+
+  return collectErrorMessages(error.cause, visitedErrors);
+};
+
 const isUniqueConstraintError = (error: unknown) => {
-  return error instanceof Error && error.message.includes('UNIQUE constraint failed');
+  return collectErrorMessages(error).some((message) => {
+    // D1 经由 Drizzle 抛出的唯一索引错误可能只把底层 SQLite 文案放在 cause 里；
+    // 队列重试依赖这里识别重复事件，否则外部 API 失败后会被 platform_events 去重挡住。
+    return (
+      message.includes('UNIQUE constraint failed') ||
+      message.includes('SQLITE_CONSTRAINT') ||
+      message.includes('constraint failed')
+    );
+  });
 };
 
 export const persistPlatformEvent = async (

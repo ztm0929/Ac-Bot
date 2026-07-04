@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { TelegramApiError, TelegramPlatformApi } from './api.js';
 
@@ -26,6 +26,10 @@ const getRequestBody = (fetchMock: ReturnType<typeof vi.fn<typeof fetch>>, callI
 };
 
 describe('TelegramPlatformApi', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('调用 approveChatJoinRequest 批准入群申请', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse.clone());
     const api = new TelegramPlatformApi('test-token', fetchMock);
@@ -48,6 +52,27 @@ describe('TelegramPlatformApi', () => {
         user_id: 456,
       }),
     });
+  });
+
+  it('默认 fetch 不会以 TelegramPlatformApi 实例作为 this 调用', async () => {
+    let observedThis: unknown;
+    const fetchMock = vi.fn<typeof fetch>(function (this: unknown) {
+      observedThis = this;
+      return Promise.resolve(okResponse.clone());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new TelegramPlatformApi('test-token');
+
+    await api.restrictMember({
+      platform: 'telegram',
+      communityId: '-100123',
+      platformAccountId: '456',
+      mode: 'verification_locked',
+    });
+
+    // Cloudflare Workers 的 fetch 对 this 绑定更敏感；默认实现必须作为普通函数调用。
+    expect(observedThis).not.toBe(api);
   });
 
   it('调用 declineChatJoinRequest 拒绝入群申请', async () => {

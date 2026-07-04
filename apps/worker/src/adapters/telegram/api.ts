@@ -13,6 +13,10 @@ import type {
 
 const telegramApiTimeoutMs = 10_000;
 
+const defaultFetch: typeof fetch = (input, init) => {
+  return fetch(input, init);
+};
+
 type TelegramApiResponse = {
   ok: boolean;
   description?: string;
@@ -222,7 +226,7 @@ const createUnbanMemberRequestBody = (input: RemoveMemberInput | UnbanMemberInpu
 export class TelegramPlatformApi {
   constructor(
     private readonly botToken: string,
-    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly fetchImpl: typeof fetch = defaultFetch,
   ) {}
 
   async approveJoinApplication(input: ApproveJoinApplicationInput): Promise<void> {
