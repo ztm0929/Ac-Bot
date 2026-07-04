@@ -1,5 +1,7 @@
 import type { Platform, VerificationAnswerReceivedPayload } from '@ac-bot/platform-contracts/core';
 
+import type { VerificationRiskDecision } from '../../moderation/services/risk-routing.js';
+
 export type VerificationAnswerClock = {
   now(): Date;
 };
@@ -43,7 +45,7 @@ export type VerificationAnswerRepository = {
     id: string;
     platform: Platform;
     platformAccountId: string;
-    reason: 'verification_failed_limit_exceeded';
+    reason: 'verification_failed_limit_exceeded' | 'high_risk_after_verification';
     bannedAt: string;
   }): Promise<
     | {
@@ -58,7 +60,7 @@ export type VerificationAnswerRepository = {
   updateCommunityMemberStatus(input: {
     communityId: string;
     platformAccountId: string;
-    status: 'probation' | 'rejected' | 'banned';
+    status: 'probation' | 'manual_review' | 'rejected' | 'banned';
     probationUntil?: string;
   }): Promise<void>;
   appendAuditLog(input: {
@@ -83,6 +85,7 @@ export type HandleVerificationAnswerOptions = {
   maxAnswerAttempts: number;
   maxVerificationFailures: number;
   probationMinutes: number;
+  riskDecision: VerificationRiskDecision;
 };
 
 export type HandleVerificationAnswerResult =
@@ -91,6 +94,20 @@ export type HandleVerificationAnswerResult =
       sessionId: string;
       communityId: string;
       probationUntil: string;
+      riskDecision: VerificationRiskDecision;
+    }
+  | {
+      status: 'manual_review';
+      sessionId: string;
+      communityId: string;
+      riskDecision: VerificationRiskDecision;
+    }
+  | {
+      status: 'high_risk_banned';
+      sessionId: string;
+      communityId: string;
+      banId: string;
+      riskDecision: VerificationRiskDecision;
     }
   | {
       status: 'incorrect_answer';
@@ -159,6 +176,89 @@ export class VerificationAnswerService {
         sessionId: session.id,
         completedAt,
       });
+
+      if (options.riskDecision.level === 'high') {
+        const ban = await this.repository.createBanIfNone({
+          id: this.idGenerator.randomUUID(),
+          platform: input.payload.platform,
+          platformAccountId: session.platformAccountId,
+          reason: 'high_risk_after_verification',
+          bannedAt: completedAt,
+        });
+
+        await this.repository.updateCommunityMemberStatus({
+          communityId: session.communityId,
+          platformAccountId: session.platformAccountId,
+          status: 'banned',
+        });
+        await this.repository.appendAuditLog({
+          id: this.idGenerator.randomUUID(),
+          action: 'risk.routed',
+          targetType: 'verification_session',
+          targetId: session.id,
+          communityId: session.communityId,
+          platform: input.payload.platform,
+          platformAccountId: session.platformAccountId,
+          metadata: {
+            eventId: input.eventId,
+            riskLevel: options.riskDecision.level,
+            riskScore: String(options.riskDecision.score),
+            reasons: options.riskDecision.reasons.join(','),
+          },
+        });
+        await this.repository.appendAuditLog({
+          id: this.idGenerator.randomUUID(),
+          action: 'member.banned',
+          targetType: 'banned_user',
+          targetId: ban.banId,
+          communityId: session.communityId,
+          platform: input.payload.platform,
+          platformAccountId: session.platformAccountId,
+          metadata: {
+            reason: 'high_risk_after_verification',
+            sessionId: session.id,
+          },
+        });
+
+        return {
+          status: 'high_risk_banned',
+          sessionId: session.id,
+          communityId: session.communityId,
+          banId: ban.banId,
+          riskDecision: options.riskDecision,
+        };
+      }
+
+      if (options.riskDecision.level === 'medium') {
+        await this.repository.updateCommunityMemberStatus({
+          communityId: session.communityId,
+          platformAccountId: session.platformAccountId,
+          status: 'manual_review',
+        });
+        await this.repository.appendAuditLog({
+          id: this.idGenerator.randomUUID(),
+          action: 'risk.routed',
+          targetType: 'verification_session',
+          targetId: session.id,
+          communityId: session.communityId,
+          platform: input.payload.platform,
+          platformAccountId: session.platformAccountId,
+          metadata: {
+            eventId: input.eventId,
+            riskLevel: options.riskDecision.level,
+            riskScore: String(options.riskDecision.score),
+            reasons: options.riskDecision.reasons.join(','),
+          },
+        });
+
+        return {
+          status: 'manual_review',
+          sessionId: session.id,
+          communityId: session.communityId,
+          riskDecision: options.riskDecision,
+        };
+      }
+
       await this.repository.updateCommunityMemberStatus({
         communityId: session.communityId,
         platformAccountId: session.platformAccountId,
@@ -175,6 +275,9 @@ export class VerificationAnswerService {
         platformAccountId: session.platformAccountId,
         metadata: {
           eventId: input.eventId,
+          riskLevel: options.riskDecision.level,
+          riskScore: String(options.riskDecision.score),
+          reasons: options.riskDecision.reasons.join(','),
         },
       });
 
@@ -183,6 +286,7 @@ export class VerificationAnswerService {
         sessionId: session.id,
         communityId: session.communityId,
         probationUntil,
+        riskDecision: options.riskDecision,
       };
     }
 

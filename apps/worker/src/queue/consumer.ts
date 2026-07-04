@@ -14,6 +14,7 @@ import {
   isTelegramWebhookUpdate,
 } from '../adapters/telegram/mapper.js';
 import type { WorkerBindings } from '../app/env.js';
+import { VerificationRiskRouter } from '../modules/moderation/services/risk-routing.js';
 import { MemberJoinedOnboardingService } from '../modules/onboarding/services/member-joined.js';
 import { VerificationAnswerService } from '../modules/onboarding/services/verification-answer.js';
 import { persistJoinApplicationCreatedEvent } from '../platform/db/join-applications.js';
@@ -57,6 +58,7 @@ const createDefaultDependencies = (env: WorkerBindings): PlatformEventProcessorD
   const onboardingService = new MemberJoinedOnboardingService(onboardingRepository);
   const verificationAnswerRepository = createD1VerificationAnswerRepository(env.DB);
   const verificationAnswerService = new VerificationAnswerService(verificationAnswerRepository);
+  const verificationRiskRouter = new VerificationRiskRouter();
   const telegramApi = env.TELEGRAM_BOT_TOKEN
     ? new TelegramPlatformApi(env.TELEGRAM_BOT_TOKEN)
     : undefined;
@@ -119,6 +121,9 @@ const createDefaultDependencies = (env: WorkerBindings): PlatformEventProcessorD
           defaultVerificationMaxFailures,
         ),
         probationMinutes: readPositiveIntegerEnv(env.PROBATION_MINUTES, defaultProbationMinutes),
+        riskDecision: verificationRiskRouter.decide({
+          configuredRiskLevel: env.VERIFICATION_RISK_LEVEL,
+        }),
       });
 
       if (result.status === 'passed') {
@@ -132,6 +137,24 @@ const createDefaultDependencies = (env: WorkerBindings): PlatformEventProcessorD
           platformAccountId: coreEvent.payload.platformAccountId,
           mode: 'probation_text_only',
           reason: 'verification_passed',
+        });
+        return;
+      }
+
+      if (result.status === 'manual_review') {
+        return;
+      }
+
+      if (result.status === 'high_risk_banned') {
+        if (!telegramApi) {
+          throw new Error('TELEGRAM_BOT_TOKEN 未配置，无法封禁高风险成员');
+        }
+
+        await telegramApi.banMember({
+          platform: coreEvent.payload.platform,
+          communityId: result.communityId,
+          platformAccountId: coreEvent.payload.platformAccountId,
+          reason: 'high_risk_after_verification',
         });
         return;
       }

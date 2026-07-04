@@ -12,6 +12,7 @@ export type WorkerBindings = {
   VERIFICATION_MAX_TIMEOUTS?: string;
   VERIFICATION_TIMEOUT_MINUTES?: string;
   VERIFICATION_TIMEOUT_BATCH_SIZE?: string;
+  VERIFICATION_RISK_LEVEL?: string;
   PROBATION_MINUTES?: string;
 };
 
