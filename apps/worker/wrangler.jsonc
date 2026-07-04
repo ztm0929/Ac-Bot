@@ -49,7 +49,7 @@
         {
           "binding": "DB",
           "database_name": "ac-bot-staging",
-          "database_id": "00000000-0000-0000-0000-000000000000",
+          "database_id": "67d9ea42-d300-4083-a172-af45992d64ea",
           "migrations_dir": "../../packages/db/migrations"
         }
       ],
