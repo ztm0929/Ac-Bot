@@ -35,7 +35,15 @@
   "env": {
     "staging": {
       "vars": {
-        "APP_ENV": "staging"
+        "APP_ENV": "staging",
+        "VERIFICATION_RISK_LEVEL": "low",
+        "VERIFICATION_TIMEOUT_MINUTES": "3",
+        "VERIFICATION_MAX_ANSWER_ATTEMPTS": "3",
+        "VERIFICATION_MAX_FAILURES": "3",
+        "VERIFICATION_MAX_TIMEOUTS": "5",
+        "PROBATION_MINUTES": "1440",
+        "VERIFICATION_PROMPT_TEXT": "欢迎加入社群，请在机器人私聊窗口完成新人验证。",
+        "VERIFICATION_PROMPT_GROUP_FALLBACK_TEXT": "欢迎新同学，请点击机器人私聊窗口完成新人验证。"
       },
       "d1_databases": [
         {

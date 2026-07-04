@@ -56,11 +56,27 @@ pnpm --filter @ac-bot/worker db:migrate:production
 ```bash
 wrangler secret put TELEGRAM_BOT_TOKEN --env staging
 wrangler secret put TELEGRAM_WEBHOOK_SECRET --env staging
+wrangler secret put VERIFICATION_ANSWER_TEXT --env staging
 wrangler secret put TELEGRAM_BOT_TOKEN --env production
 wrangler secret put TELEGRAM_WEBHOOK_SECRET --env production
+wrangler secret put VERIFICATION_ANSWER_TEXT --env production
 ```
 
 staging 与 production 必须使用不同的 Telegram bot、不同的群组和不同的 webhook secret。
+
+`VERIFICATION_ANSWER_TEXT` 是私有运营配置，不应写入仓库、PR 描述、普通日志或截图。staging 可以使用与 production 不同的测试答案。
+
+## Staging smoke test 配置
+
+当前进入 staging 的目标是验证 Telegram 公开群新人验证主链路是否能跑通，不追求高质量拦截。建议先使用低风险直通配置：
+
+```bash
+wrangler secret put VERIFICATION_ANSWER_TEXT --env staging
+```
+
+`VERIFICATION_RISK_LEVEL=low`、验证超时、答题次数、累计失败/超时阈值、观察期时长和默认提示文案已经作为 staging 的非敏感默认配置写入 `apps/worker/wrangler.jsonc`。如需临时演练中风险或高风险路径，可以在 staging 部署前修改 `VERIFICATION_RISK_LEVEL` 为 `medium` 或 `high`，测试完成后应改回 `low`。
+
+当前 staging smoke test 建议保持 `low`，先确认新人能完成简单答题并恢复文本权限。
 
 ## Telegram webhook
 
@@ -109,3 +125,16 @@ Webhook URL 必须使用 `https://`，并指向 `/webhooks/telegram`。
 8. 在正式群中小范围观察，再扩大使用范围。
 
 未来新增功能也按这个流程进入正式群，避免未经体验的功能直接影响同学们。
+
+## Staging smoke test 检查清单
+
+1. 测试 bot 已加入测试群，并具有限制成员、封禁成员和发送消息权限。
+2. staging 已配置 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`VERIFICATION_ANSWER_TEXT`。
+3. staging 已执行 D1 migration。
+4. staging Worker 已部署成功。
+5. 测试 bot webhook 已设置到 staging Worker 的 `/webhooks/telegram`。
+6. 新账号加入测试群后应立即被限制发言。
+7. bot 应优先私聊发送验证引导；如果私聊失败，应在群内发送短提示。
+8. 新账号在私聊中发送正确答案后，应进入 24 小时文本观察期。
+9. 新账号发送错误答案达到单次上限后，应被移出；累计达到阈值后应被永久封禁。
+10. 新账号完全不验证超过 3 分钟后，应被定时任务移出；累计达到阈值后应被永久封禁。

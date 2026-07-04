@@ -518,6 +518,21 @@ answerChatJoinRequestQuery
 - `ChatJoinRequest.query_id`: <https://core.telegram.org/bots/api#chatjoinrequest>
 - `sendChatJoinRequestWebApp`: <https://core.telegram.org/bots/api#sendchatjoinrequestwebapp>
 - `answerChatJoinRequestQuery`: <https://core.telegram.org/bots/api#answerchatjoinrequestquery>
+
+## 19. Staging smoke test 后续 TODO
+
+为了尽快进入 staging 并在 Telegram 测试群完成真实链路验证，当前 staging smoke test 只要求跑通公开群新人加入、禁言、验证引导、私聊答题、文本观察期、答题失败移出、超时移出和累计失败/超时封禁。以下事项暂不阻塞本次 staging：
+
+1. 实现真实资料风控评分：根据 username、first_name、last_name、bio、Premium、头像、历史失败/超时等信号计算风险分。
+2. 建立 `moderation_rules` 或等价配置表：把关键词、阈值、风险分、规则启停从代码和环境变量迁移到数据库配置。
+3. 实现中风险管理员审核入口：向 Telegram 管理员群发送审核卡片，支持批准、拒绝和拒绝二次确认。
+4. 实现管理员权限校验：所有管理员操作必须按 `platform + platform_account_id` 校验，并记录管理员 ID。
+5. 实现群内验证提示的低打扰清理：支持定时删除、合并提示或限频提示，降低对普通成员的打扰。
+6. 补齐风险分流审计细节：将风险规则命中项、人工覆盖、管理员拒绝、解除拉黑等写入更完整的审计记录。
+7. 实现观察期结束后的权限恢复任务：目前 staging 只要求观察期内文本权限可用，观察期结束后的媒体、链接、reaction 等权限仍需后续明确。
+8. 增强 Telegram 资料采集：在 Bot API 能力允许范围内补充用户名、昵称、bio、头像、Premium 等资料同步。
+9. 增强外部 API 失败追踪：Telegram API 调用失败需要可查询的失败状态、告警或后台排查入口。
+10. 补充 Discord、QQ、Matrix adapter 的实际平台映射；当前只保留跨平台架构边界和入口。
 - `ChatFullInfo.guard_bot`: <https://core.telegram.org/bots/api#chatfullinfo>
 
 ### 5.5 Telegram Mini App
