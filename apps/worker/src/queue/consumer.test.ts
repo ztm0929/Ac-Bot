@@ -2,7 +2,7 @@ import type { PlatformEventEnvelope } from '@ac-bot/platform-contracts/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkerBindings } from '../app/env.js';
-import { processPlatformEventEnvelope } from './consumer.js';
+import { processPlatformEventEnvelope, readMessageTextFormatEnv } from './consumer.js';
 
 const createEnv = (): WorkerBindings =>
   ({
@@ -47,6 +47,16 @@ const createPrivateAnswerEnvelope = (): PlatformEventEnvelope => ({
 });
 
 describe('processPlatformEventEnvelope', () => {
+  it('读取受支持的富文本格式配置', () => {
+    expect(readMessageTextFormatEnv('markdown')).toBe('markdown');
+    expect(readMessageTextFormatEnv('latex_inline')).toBe('latex_inline');
+    expect(readMessageTextFormatEnv(undefined)).toBeUndefined();
+  });
+
+  it('拒绝未知的富文本格式配置', () => {
+    expect(() => readMessageTextFormatEnv('MarkdownV2')).toThrow('消息格式配置无效: MarkdownV2');
+  });
+
   it('处理 Telegram 新成员事件并触发 onboarding', async () => {
     const handleMemberJoined = vi.fn().mockResolvedValue(undefined);
 

@@ -1,6 +1,7 @@
 import type {
   CoreEventEnvelope,
   MemberJoinedPayload,
+  MessageTextFormat,
   PlatformEventEnvelope,
   VerificationAnswerReceivedPayload,
 } from '@ac-bot/platform-contracts/core';
@@ -31,6 +32,13 @@ const defaultProbationMinutes = 1440;
 const defaultVerificationPromptText = '欢迎加入社群，请在机器人私聊窗口完成新人验证。';
 const defaultVerificationPromptGroupFallbackText =
   '欢迎新同学，请点击机器人私聊窗口完成新人验证。';
+const messageTextFormats = new Set<MessageTextFormat>([
+  'plain_text',
+  'markdown',
+  'html',
+  'latex_inline',
+  'latex_block',
+]);
 
 export type PlatformEventProcessorDependencies = {
   persistPlatformEvent: typeof persistPlatformEvent;
@@ -51,6 +59,20 @@ const readPositiveIntegerEnv = (configuredValue: string | undefined, fallback: n
   }
 
   return parsedValue;
+};
+
+export const readMessageTextFormatEnv = (
+  configuredValue: string | undefined,
+): MessageTextFormat | undefined => {
+  if (!configuredValue) {
+    return undefined;
+  }
+
+  if (messageTextFormats.has(configuredValue as MessageTextFormat)) {
+    return configuredValue as MessageTextFormat;
+  }
+
+  throw new Error(`消息格式配置无效: ${configuredValue}`);
 };
 
 const createDefaultDependencies = (env: WorkerBindings): PlatformEventProcessorDependencies => {
@@ -96,13 +118,19 @@ const createDefaultDependencies = (env: WorkerBindings): PlatformEventProcessorD
       });
       // 先限制发言再发送引导，确保即使提示发送失败并触发队列重试，新人也不会获得刷屏窗口。
       // 验证题面属于运营配置；这里的默认文案只提供入口，不写入真实题目或答案。
+      const directMessageFormat = readMessageTextFormatEnv(env.VERIFICATION_PROMPT_FORMAT);
+      const groupFallbackFormat = readMessageTextFormatEnv(
+        env.VERIFICATION_PROMPT_GROUP_FALLBACK_FORMAT,
+      );
       await telegramApi.sendVerificationPrompt({
         platform: coreEvent.payload.platform,
         communityId: coreEvent.payload.communityId,
         platformAccountId: coreEvent.payload.platformAccountId,
         directMessageText: env.VERIFICATION_PROMPT_TEXT ?? defaultVerificationPromptText,
+        ...(directMessageFormat ? { directMessageFormat } : {}),
         groupFallbackText:
           env.VERIFICATION_PROMPT_GROUP_FALLBACK_TEXT ?? defaultVerificationPromptGroupFallbackText,
+        ...(groupFallbackFormat ? { groupFallbackFormat } : {}),
       });
     },
     async handleVerificationAnswer(coreEvent) {

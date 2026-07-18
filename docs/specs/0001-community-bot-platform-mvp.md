@@ -546,6 +546,41 @@ Mini App 必须校验 Telegram WebApp init data。所有用户身份以服务端
 - Telegram Mini Apps: <https://core.telegram.org/bots/webapps>
 - Validating data received via Mini App: <https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app>
 
+### 5.6 专业文本格式与 Rich Messages
+
+平台无关消息动作支持以下文本格式：
+
+```text
+plain_text
+markdown
+html
+latex_inline
+latex_block
+```
+
+`plain_text` 是默认格式，继续通过 Telegram `sendMessage` 发送。`markdown` 与 `html` 由
+`TelegramPlatformAdapter` 映射为 Telegram `sendRichMessage` 的 `InputRichMessage.markdown` 或
+`InputRichMessage.html`，用于展示标题、强调、链接、列表、引用、代码块、表格、数学公式等专业内容。
+
+`latex_inline` 和 `latex_block` 接收原始 LaTeX 公式，Telegram adapter 分别使用 `<tg-math>` 和
+`<tg-math-block>` 包装后通过 `sendRichMessage` 发送。adapter 必须转义公式中的 HTML 特殊字符，
+但不得修改 LaTeX 命令、反斜杠或公式结构。
+
+核心模块只能声明内容及其格式，不得直接依赖 Telegram `parse_mode`、`InputRichMessage` 或
+`sendRichMessage`。其他平台 adapter 应把相同的平台无关格式映射到各自的富文本能力；平台不支持时，
+adapter 必须明确降级为纯文本，而不是把 Markdown 控制符原样展示给用户。
+
+验证引导的私聊消息与群内回退消息可以分别设置格式。格式未设置时必须保持纯文本行为，确保现有配置
+向后兼容。Markdown 或 HTML 内容属于受信任的运营配置；未来允许普通用户提交富文本时，必须先增加
+协议白名单、链接校验和内容长度限制。
+
+文档：
+
+- Telegram Rich Messages: <https://core.telegram.org/bots/api#rich-messages>
+- `InputRichMessage`: <https://core.telegram.org/bots/api#inputrichmessage>
+- `sendRichMessage`: <https://core.telegram.org/bots/api#sendrichmessage>
+- Rich HTML style: <https://core.telegram.org/bots/api#rich-html-style>
+
 ## 6. 模块边界
 
 目录结构固定为：

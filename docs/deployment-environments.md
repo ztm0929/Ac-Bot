@@ -76,6 +76,10 @@ wrangler secret put VERIFICATION_ANSWER_TEXT --env staging
 
 `VERIFICATION_RISK_LEVEL=low`、验证超时、答题次数、累计失败/超时阈值、观察期时长和默认提示文案已经作为 staging 的非敏感默认配置写入 `apps/worker/wrangler.jsonc`。如需临时演练中风险或高风险路径，可以在 staging 部署前修改 `VERIFICATION_RISK_LEVEL` 为 `medium` 或 `high`，测试完成后应改回 `low`。
 
+验证提示支持 `plain_text`、`markdown`、`html`、`latex_inline` 和 `latex_block`。分别通过
+`VERIFICATION_PROMPT_FORMAT` 与 `VERIFICATION_PROMPT_GROUP_FALLBACK_FORMAT` 配置私聊提示和群内回退提示；
+未配置时默认使用纯文本，未知格式会拒绝处理，避免把格式标记原样发送给用户。
+
 当前 staging smoke test 建议保持 `low`，先确认新人能完成简单答题并恢复文本权限。
 
 ## Telegram webhook
