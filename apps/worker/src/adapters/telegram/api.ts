@@ -2,6 +2,7 @@ import type {
   ApproveJoinApplicationInput,
   BanMemberInput,
   DirectMessageInput,
+  MessageTextFormat,
   RejectJoinApplicationInput,
   RemoveMemberInput,
   RestoreMemberInput,
@@ -43,11 +44,45 @@ type TelegramChatPermissions = {
 type TelegramRequestBody = {
   chat_id: number | string;
   text?: string;
+  rich_message?: TelegramInputRichMessage;
   user_id: number;
   permissions?: TelegramChatPermissions;
   use_independent_chat_permissions?: boolean;
   revoke_messages?: boolean;
   only_if_banned?: boolean;
+};
+
+type TelegramInputRichMessage =
+  | {
+      markdown: string;
+    }
+  | {
+      html: string;
+    };
+
+type TelegramTextMessageRequest = {
+  method: 'sendMessage' | 'sendRichMessage';
+  body: Pick<TelegramRequestBody, 'chat_id' | 'text' | 'rich_message'>;
+};
+
+const escapeRichHtmlText = (text: string): string => {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+};
+
+const createTelegramRichMessage = (
+  text: string,
+  format: Exclude<MessageTextFormat, 'plain_text'>,
+): TelegramInputRichMessage => {
+  switch (format) {
+    case 'markdown':
+      return { markdown: text };
+    case 'html':
+      return { html: text };
+    case 'latex_inline':
+      return { html: `<tg-math>${escapeRichHtmlText(text)}</tg-math>` };
+    case 'latex_block':
+      return { html: `<tg-math-block>${escapeRichHtmlText(text)}</tg-math-block>` };
+  }
 };
 
 export class TelegramApiError extends Error {
@@ -109,43 +144,64 @@ const createRequestBody = (
   };
 };
 
-const createDirectMessageRequestBody = (
-  input: DirectMessageInput,
-): Pick<TelegramRequestBody, 'chat_id' | 'text'> => {
-  if (input.platform !== 'telegram') {
-    throw new TelegramApiError('Telegram adapter 只能处理 telegram 平台动作');
+const createTextMessageRequest = (
+  chatId: number | string,
+  text: string,
+  format: MessageTextFormat = 'plain_text',
+): TelegramTextMessageRequest => {
+  if (format === 'plain_text') {
+    return {
+      method: 'sendMessage',
+      body: {
+        chat_id: chatId,
+        text,
+      },
+    };
   }
 
   return {
-    chat_id: toTelegramUserId(input.platformAccountId),
-    text: input.text,
+    method: 'sendRichMessage',
+    body: {
+      chat_id: chatId,
+      rich_message: createTelegramRichMessage(text, format),
+    },
   };
 };
 
-const createVerificationPromptDirectMessageRequestBody = (
-  input: VerificationPromptInput,
-): Pick<TelegramRequestBody, 'chat_id' | 'text'> => {
+const createDirectMessageRequest = (input: DirectMessageInput): TelegramTextMessageRequest => {
   if (input.platform !== 'telegram') {
     throw new TelegramApiError('Telegram adapter 只能处理 telegram 平台动作');
   }
 
-  return {
-    chat_id: toTelegramUserId(input.platformAccountId),
-    text: input.directMessageText,
-  };
+  return createTextMessageRequest(toTelegramUserId(input.platformAccountId), input.text, input.format);
 };
 
-const createVerificationPromptGroupMessageRequestBody = (
+const createVerificationPromptDirectMessageRequest = (
   input: VerificationPromptInput,
-): Pick<TelegramRequestBody, 'chat_id' | 'text'> => {
+): TelegramTextMessageRequest => {
   if (input.platform !== 'telegram') {
     throw new TelegramApiError('Telegram adapter 只能处理 telegram 平台动作');
   }
 
-  return {
-    chat_id: toTelegramChatId(input.communityId),
-    text: input.groupFallbackText,
-  };
+  return createTextMessageRequest(
+    toTelegramUserId(input.platformAccountId),
+    input.directMessageText,
+    input.directMessageFormat,
+  );
+};
+
+const createVerificationPromptGroupMessageRequest = (
+  input: VerificationPromptInput,
+): TelegramTextMessageRequest => {
+  if (input.platform !== 'telegram') {
+    throw new TelegramApiError('Telegram adapter 只能处理 telegram 平台动作');
+  }
+
+  return createTextMessageRequest(
+    toTelegramChatId(input.communityId),
+    input.groupFallbackText,
+    input.groupFallbackFormat,
+  );
 };
 
 const verificationLockedPermissions = (): TelegramChatPermissions => ({
@@ -238,12 +294,15 @@ export class TelegramPlatformApi {
   }
 
   async sendDirectMessage(input: DirectMessageInput): Promise<void> {
-    await this.request('sendMessage', createDirectMessageRequestBody(input));
+    const request = createDirectMessageRequest(input);
+    await this.request(request.method, request.body);
   }
 
   async sendVerificationPrompt(input: VerificationPromptInput): Promise<VerificationPromptDelivery> {
+    const directMessageRequest = createVerificationPromptDirectMessageRequest(input);
+
     try {
-      await this.request('sendMessage', createVerificationPromptDirectMessageRequestBody(input));
+      await this.request(directMessageRequest.method, directMessageRequest.body);
 
       return 'direct_message';
     } catch (error) {
@@ -253,7 +312,8 @@ export class TelegramPlatformApi {
 
       // Telegram bot 不能随意主动私聊未打开过 bot 的用户；失败时回退到群内短提示。
       // 群内提示失败则继续抛出，让队列重试，避免新人被禁言后完全收不到验证入口。
-      await this.request('sendMessage', createVerificationPromptGroupMessageRequestBody(input));
+      const groupMessageRequest = createVerificationPromptGroupMessageRequest(input);
+      await this.request(groupMessageRequest.method, groupMessageRequest.body);
 
       return 'group_fallback';
     }
@@ -283,7 +343,7 @@ export class TelegramPlatformApi {
 
   private async request(
     method: string,
-    body: Pick<TelegramRequestBody, 'chat_id' | 'text'> | TelegramRequestBody,
+    body: Pick<TelegramRequestBody, 'chat_id' | 'text' | 'rich_message'> | TelegramRequestBody,
   ): Promise<void> {
     const abortController = new AbortController();
     // 外部平台请求不能无限挂起；超时后交给后续调用方按失败路径处理和重试。

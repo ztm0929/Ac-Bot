@@ -1,9 +1,12 @@
 import type { Platform } from './platform.js';
 
+export type MessageTextFormat = 'plain_text' | 'markdown' | 'html' | 'latex_inline' | 'latex_block';
+
 export type DirectMessageInput = {
   platform: Platform;
   platformAccountId: string;
   text: string;
+  format?: MessageTextFormat;
 };
 
 export type VerificationPromptInput = {
@@ -11,7 +14,9 @@ export type VerificationPromptInput = {
   communityId: string;
   platformAccountId: string;
   directMessageText: string;
+  directMessageFormat?: MessageTextFormat;
   groupFallbackText: string;
+  groupFallbackFormat?: MessageTextFormat;
 };
 
 export type VerificationPromptDelivery = 'direct_message' | 'group_fallback';
